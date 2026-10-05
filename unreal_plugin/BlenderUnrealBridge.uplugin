@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Blender Unreal Bridge",
+	"Description": "Bridge pipeline to transfer 3D scenes from Blender to Unreal Engine.",
+	"Category": "Editor",
+	"CreatedBy": "Blender Unreal Bridge Contributors",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BlenderUnrealBridge",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
