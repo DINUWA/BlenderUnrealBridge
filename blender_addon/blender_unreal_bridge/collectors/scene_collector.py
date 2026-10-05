@@ -64,7 +64,7 @@ class ObjectMetadata:
         bubridge_id of the parent object, or None if there is no parent.
     """
 
-    __slots__ = ("bubridge_id", "name", "object_type", "collections", "parent_id")
+    __slots__ = ("bubridge_id", "name", "object_type", "collections", "parent_id", "transform")
 
     def __init__(
         self,
@@ -73,21 +73,26 @@ class ObjectMetadata:
         object_type: str,
         collections: list,
         parent_id: str | None,
+        transform=None,
     ):
         self.bubridge_id = bubridge_id
         self.name = name
         self.object_type = object_type
         self.collections = collections
         self.parent_id = parent_id
+        self.transform = transform
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "bubridge_id": self.bubridge_id,
             "name": self.name,
             "object_type": self.object_type,
             "collections": self.collections,
             "parent_id": self.parent_id,
         }
+        if self.transform is not None:
+            d["transform"] = self.transform.to_dict()["transform"]
+        return d
 
 
 class SceneInspectionResult:
@@ -158,7 +163,7 @@ def _get_collection_names_for_object(obj) -> list:
 # Core collector
 # ---------------------------------------------------------------------------
 
-def collect_scene(scene=None) -> SceneInspectionResult:
+def collect_scene(scene=None, extract_transforms: bool = False) -> SceneInspectionResult:
     """
     Traverse the given Blender scene (or the active scene if None) and collect
     metadata for all relevant objects.
@@ -168,13 +173,15 @@ def collect_scene(scene=None) -> SceneInspectionResult:
       2. Filters to supported object types only.
       3. Assigns or retrieves the stable bubridge_id for each object.
       4. Records collection membership and parent relationships.
-      5. Returns a SceneInspectionResult with all collected metadata.
+      5. Optionally extracts canonical transform data if extract_transforms is True.
+      6. Returns a SceneInspectionResult with all collected metadata.
 
     Unsupported object types are noted as INFO-level warnings rather than
     silently discarded, in accordance with project error-handling policy.
 
     Args:
         scene: An optional bpy.types.Scene. Defaults to bpy.context.scene.
+        extract_transforms: Whether to extract and convert canonical transform data.
 
     Returns:
         A SceneInspectionResult containing all gathered metadata.
@@ -219,12 +226,23 @@ def collect_scene(scene=None) -> SceneInspectionResult:
 
         collections = _get_collection_names_for_object(obj)
 
+        transform_data = None
+        if extract_transforms:
+            from ..transforms.canonical import extract_transform
+            transform_data = extract_transform(
+                obj,
+                parent_id=parent_id,
+                warnings=result.warnings,
+                errors=result.errors,
+            )
+
         metadata = ObjectMetadata(
             bubridge_id=bubridge_id,
             name=obj.name,
             object_type=obj.type,
             collections=collections,
             parent_id=parent_id,
+            transform=transform_data,
         )
         result.objects.append(metadata)
 

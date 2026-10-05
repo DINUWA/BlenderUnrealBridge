@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 2] - 2026-10-05
+
+### Added
+- `blender_addon/blender_unreal_bridge/transforms/__init__.py` — `transforms` package marker.
+- `blender_addon/blender_unreal_bridge/transforms/canonical.py` — Authoritative Blender-to-Bridge transform conversion module.
+  - Implements canonical axis conversion: Blender +Y (forward) → Bridge +X, Blender +X (right) → Bridge +Y, +Z (up) shared.
+  - Implements canonical unit scaling: Meters → Centimeters (factor 100.0).
+  - Implements quaternion rotation conversion with handedness basis transformation: `(w, x, y, z)` → `[y, x, -z, w]`.
+  - Implements scale conversion with axis swap and negative scale / reflection preservation (`has_negative_scale` flag).
+  - Extracts local parent-relative transforms without precision loss or matrix decomposition artifacts.
+  - Handles all Blender rotation modes (`QUATERNION`, `AXIS_ANGLE`, and Euler modes `XYZ`, `XZY`, `YXZ`, `YZX`, `ZXY`, `ZYX`).
+  - Emits non-fatal warnings for `AXIS_ANGLE` and negative scale winding notifications.
+  - Defines `TransformData` conforming strictly to `DATA_PROTOCOL.md` `transform` schema.
+- `blender_addon/tests/test_transforms.py` — 54-test comprehensive suite covering:
+  - Identity transform
+  - Translations (single axis, combined, unit conversion 1 BU = 100 cm)
+  - Rotations (X/Y/Z Euler, Quaternion mode, all 6 Euler orders, identity in any mode)
+  - Scale (uniform, non-uniform, single/double negative scale reflection flags)
+  - Hierarchy (relative parent/child offsets, 3-level deeply nested hierarchies, root objects)
+  - Axis angle warning generation
+  - Arbitrary combined TRS transforms
+  - Repeated extraction stability
+  - Schema dictionary serialization
+  - Scene collector transform integration
+- `blender_addon/blender_unreal_bridge/collectors/scene_collector.py` — updated with optional `extract_transforms` parameter and `ObjectMetadata.transform` attribute, preserving 100% backward compatibility with Milestone 1.
+
+### Validation Status (Milestone 2)
+- **Blender 4.5.3 LTS Runtime Verification**:
+  - `test_transforms.py`: **54/54 PASSED** (0 failures, 0 errors in 0.021s)
+  - `test_scene_collector.py`: **22/22 PASSED** (0 failures, 0 errors in 0.019s)
+  - `test_addon_registration.py`: **2/2 PASSED** (0 failures, 0 errors in 0.000s)
+  - **Total Blender Tests**: **78/78 PASSED** (0 failures, 0 errors)
+- **Bridge Core C++ (MSVC 2022 via CMake)**:
+  - `VersionTest`: **1/1 PASSED** (0 errors, 0 warnings)
+
 ## [Milestone 1] - 2026-10-05
 
 ### Added
