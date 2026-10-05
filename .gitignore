@@ -63,3 +63,4 @@ DerivedDataCache/
 # Package outputs
 *.bubridge/
 !test_assets/**/*.bubridge/
+wearWE.mb
