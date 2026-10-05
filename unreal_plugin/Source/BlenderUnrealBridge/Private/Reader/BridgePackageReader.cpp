@@ -1,0 +1,386 @@
+#include "Reader/BridgePackageReader.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "HAL/PlatformFileManager.h"
+
+bool FBridgePackageReader::LoadPackage(
+	const FString& PackageDirectory,
+	FBridgePackageData& OutPackageData,
+	FBridgeValidationReport& OutReport)
+{
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_START"), FString::Printf(TEXT("Loading Bridge package from '%s'"), *PackageDirectory));
+
+	// 1. Verify directory and required files
+	if (!VerifyPackageStructure(PackageDirectory, OutReport))
+	{
+		return false;
+	}
+
+	OutPackageData.PackageDirectory = PackageDirectory;
+
+	// 2. Parse manifest.json
+	FString ManifestPath = FPaths::Combine(PackageDirectory, TEXT("manifest.json"));
+	TSharedPtr<FJsonObject> ManifestJson;
+	if (!ReadJsonFile(ManifestPath, ManifestJson, OutReport) || !ParseManifest(ManifestJson, OutPackageData.Manifest, OutReport))
+	{
+		return false;
+	}
+
+	// 3. Parse scene.json
+	FString ScenePath = FPaths::Combine(PackageDirectory, TEXT("scene.json"));
+	TSharedPtr<FJsonObject> SceneJson;
+	if (!ReadJsonFile(ScenePath, SceneJson, OutReport) || !ParseScene(SceneJson, OutPackageData.Scene, OutReport))
+	{
+		return false;
+	}
+
+	// 4. Parse objects.json
+	FString ObjectsPath = FPaths::Combine(PackageDirectory, TEXT("objects.json"));
+	TSharedPtr<FJsonObject> ObjectsJson;
+	if (!ReadJsonFile(ObjectsPath, ObjectsJson, OutReport) || !ParseObjects(ObjectsJson, OutPackageData.Objects, OutReport))
+	{
+		return false;
+	}
+
+	// 5. Build fast lookup ID map
+	OutPackageData.RebuildIdMap();
+
+	// 6. Execute full protocol validation
+	if (!FBridgePackageValidator::ValidatePackage(OutPackageData, OutReport))
+	{
+		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata or hierarchy failed validation"));
+		return false;
+	}
+
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects"),
+		*OutPackageData.Scene.Name, OutPackageData.Objects.Num()));
+
+	return true;
+}
+
+bool FBridgePackageReader::VerifyPackageStructure(
+	const FString& PackageDirectory,
+	FBridgeValidationReport& OutReport)
+{
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	if (!PlatformFile.DirectoryExists(*PackageDirectory))
+	{
+		OutReport.AddError(
+			TEXT("PACKAGE_DIR_NOT_FOUND"),
+			FString::Printf(TEXT("Package directory does not exist: '%s'"), *PackageDirectory));
+		return false;
+	}
+
+	const TCHAR* RequiredFiles[] = {
+		TEXT("manifest.json"),
+		TEXT("scene.json"),
+		TEXT("objects.json")
+	};
+
+	bool bAllExist = true;
+	for (const TCHAR* Filename : RequiredFiles)
+	{
+		FString FullPath = FPaths::Combine(PackageDirectory, Filename);
+		if (!PlatformFile.FileExists(*FullPath))
+		{
+			OutReport.AddError(
+				TEXT("PACKAGE_MISSING_FILE"),
+				FString::Printf(TEXT("Required package file missing: '%s'"), Filename));
+			bAllExist = false;
+		}
+	}
+
+	return bAllExist;
+}
+
+bool FBridgePackageReader::ReadJsonFile(
+	const FString& FilePath,
+	TSharedPtr<FJsonObject>& OutJsonObject,
+	FBridgeValidationReport& OutReport)
+{
+	FString JsonString;
+	if (!FFileHelper::LoadFileToString(JsonString, *FilePath))
+	{
+		OutReport.AddError(
+			TEXT("FILE_READ_FAILED"),
+			FString::Printf(TEXT("Failed to read file: '%s'"), *FilePath));
+		return false;
+	}
+
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+	if (!FJsonSerializer::Deserialize(Reader, OutJsonObject) || !OutJsonObject.IsValid())
+	{
+		OutReport.AddError(
+			TEXT("JSON_PARSE_FAILED"),
+			FString::Printf(TEXT("Failed to parse JSON file: '%s'"), *FilePath));
+		return false;
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseManifest(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeManifest& OutManifest,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject->TryGetStringField(TEXT("format"), OutManifest.Format))
+	{
+		OutReport.AddError(TEXT("MANIFEST_MISSING_FIELD"), TEXT("manifest.json is missing 'format'"));
+		return false;
+	}
+
+	if (!JsonObject->TryGetStringField(TEXT("version"), OutManifest.Version))
+	{
+		OutReport.AddError(TEXT("MANIFEST_MISSING_FIELD"), TEXT("manifest.json is missing 'version'"));
+		return false;
+	}
+
+	JsonObject->TryGetStringField(TEXT("created_at"), OutManifest.CreatedAt);
+
+	// Generator
+	const TSharedPtr<FJsonObject>* GenObj;
+	if (JsonObject->TryGetObjectField(TEXT("generator"), GenObj) && GenObj)
+	{
+		(*GenObj)->TryGetStringField(TEXT("name"), OutManifest.GeneratorName);
+		(*GenObj)->TryGetStringField(TEXT("version"), OutManifest.GeneratorVersion);
+	}
+
+	// Source
+	const TSharedPtr<FJsonObject>* SourceObj;
+	if (JsonObject->TryGetObjectField(TEXT("source"), SourceObj) && SourceObj)
+	{
+		(*SourceObj)->TryGetStringField(TEXT("application"), OutManifest.SourceApplication);
+		(*SourceObj)->TryGetStringField(TEXT("version"), OutManifest.SourceVersion);
+		(*SourceObj)->TryGetStringField(TEXT("scene_name"), OutManifest.SourceSceneName);
+		(*SourceObj)->TryGetStringField(TEXT("unit_length"), OutManifest.SourceUnitLength);
+		double ScaleVal = 1.0;
+		if ((*SourceObj)->TryGetNumberField(TEXT("unit_scale"), ScaleVal))
+		{
+			OutManifest.SourceUnitScale = static_cast<float>(ScaleVal);
+		}
+	}
+
+	// Coordinate System
+	const TSharedPtr<FJsonObject>* CoordObj;
+	if (JsonObject->TryGetObjectField(TEXT("coordinate_system"), CoordObj) && CoordObj)
+	{
+		(*CoordObj)->TryGetStringField(TEXT("up_axis"), OutManifest.CoordinateSystem.UpAxis);
+		(*CoordObj)->TryGetStringField(TEXT("forward_axis"), OutManifest.CoordinateSystem.ForwardAxis);
+		(*CoordObj)->TryGetStringField(TEXT("right_axis"), OutManifest.CoordinateSystem.RightAxis);
+		(*CoordObj)->TryGetStringField(TEXT("handedness"), OutManifest.CoordinateSystem.Handedness);
+		(*CoordObj)->TryGetStringField(TEXT("unit"), OutManifest.CoordinateSystem.Unit);
+	}
+
+	// Content summary
+	const TSharedPtr<FJsonObject>* SummaryObj;
+	if (JsonObject->TryGetObjectField(TEXT("content_summary"), SummaryObj) && SummaryObj)
+	{
+		(*SummaryObj)->TryGetNumberField(TEXT("object_count"), OutManifest.ContentSummary.ObjectCount);
+		(*SummaryObj)->TryGetNumberField(TEXT("mesh_count"), OutManifest.ContentSummary.MeshCount);
+		(*SummaryObj)->TryGetNumberField(TEXT("material_count"), OutManifest.ContentSummary.MaterialCount);
+		(*SummaryObj)->TryGetNumberField(TEXT("texture_count"), OutManifest.ContentSummary.TextureCount);
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseScene(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeScene& OutScene,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject->TryGetStringField(TEXT("name"), OutScene.Name))
+	{
+		OutReport.AddError(TEXT("SCENE_MISSING_FIELD"), TEXT("scene.json is missing 'name'"));
+		return false;
+	}
+
+	// Collections
+	const TArray<TSharedPtr<FJsonValue>>* ColArray;
+	if (JsonObject->TryGetArrayField(TEXT("collections"), ColArray) && ColArray)
+	{
+		for (const TSharedPtr<FJsonValue>& ColVal : *ColArray)
+		{
+			const TSharedPtr<FJsonObject>& ColObj = ColVal->AsObject();
+			if (ColObj.IsValid())
+			{
+				FBridgeCollection Col;
+				ColObj->TryGetStringField(TEXT("id"), Col.Id);
+				ColObj->TryGetStringField(TEXT("name"), Col.Name);
+				ColObj->TryGetStringField(TEXT("parent_id"), Col.ParentId);
+				ColObj->TryGetStringField(TEXT("color_tag"), Col.ColorTag);
+				OutScene.Collections.Add(Col);
+			}
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseObjects(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	TArray<FBridgeObject>& OutObjects,
+	FBridgeValidationReport& OutReport)
+{
+	const TArray<TSharedPtr<FJsonValue>>* ObjsArray;
+	if (!JsonObject->TryGetArrayField(TEXT("objects"), ObjsArray) || !ObjsArray)
+	{
+		OutReport.AddError(TEXT("OBJECTS_MISSING_ARRAY"), TEXT("objects.json is missing 'objects' array"));
+		return false;
+	}
+
+	for (const TSharedPtr<FJsonValue>& Item : *ObjsArray)
+	{
+		const TSharedPtr<FJsonObject>& ObjEntry = Item->AsObject();
+		if (!ObjEntry.IsValid())
+		{
+			continue;
+		}
+
+		FBridgeObject BridgeObj;
+		ObjEntry->TryGetStringField(TEXT("id"), BridgeObj.Id);
+		ObjEntry->TryGetStringField(TEXT("name"), BridgeObj.Name);
+		ObjEntry->TryGetStringField(TEXT("type"), BridgeObj.Type);
+		ObjEntry->TryGetBoolField(TEXT("visible"), BridgeObj.bVisible);
+		ObjEntry->TryGetStringField(TEXT("collection_id"), BridgeObj.CollectionId);
+		ObjEntry->TryGetStringField(TEXT("parent_id"), BridgeObj.ParentId);
+
+		const TSharedPtr<FJsonObject>* XformObj;
+		if (ObjEntry->TryGetObjectField(TEXT("transform"), XformObj) && XformObj)
+		{
+			ParseTransform(*XformObj, BridgeObj.Id, BridgeObj.Name, BridgeObj.Transform, OutReport);
+		}
+		else
+		{
+			OutReport.AddError(
+				TEXT("OBJECT_MISSING_TRANSFORM"),
+				FString::Printf(TEXT("Object '%s' (%s) missing 'transform' block"), *BridgeObj.Name, *BridgeObj.Id),
+				BridgeObj.Id);
+		}
+
+		OutObjects.Add(BridgeObj);
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseTransform(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	const FString& ObjectId,
+	const FString& ObjectName,
+	FBridgeCanonicalTransform& OutTransform,
+	FBridgeValidationReport& OutReport)
+{
+	// Location [X, Y, Z]
+	const TArray<TSharedPtr<FJsonValue>>* LocArray;
+	if (JsonObject->TryGetArrayField(TEXT("location"), LocArray) && LocArray && LocArray->Num() == 3)
+	{
+		OutTransform.Location.X = static_cast<float>((*LocArray)[0]->AsNumber());
+		OutTransform.Location.Y = static_cast<float>((*LocArray)[1]->AsNumber());
+		OutTransform.Location.Z = static_cast<float>((*LocArray)[2]->AsNumber());
+	}
+	else
+	{
+		OutReport.AddError(
+			TEXT("TRANSFORM_MALFORMED_LOCATION"),
+			FString::Printf(TEXT("Object '%s' (%s) transform has malformed 'location'"), *ObjectName, *ObjectId),
+			ObjectId);
+	}
+
+	// Quaternion [X, Y, Z, W]
+	const TArray<TSharedPtr<FJsonValue>>* QuatArray;
+	if (JsonObject->TryGetArrayField(TEXT("rotation_quaternion"), QuatArray) && QuatArray && QuatArray->Num() == 4)
+	{
+		OutTransform.RotationQuaternion.X = static_cast<float>((*QuatArray)[0]->AsNumber());
+		OutTransform.RotationQuaternion.Y = static_cast<float>((*QuatArray)[1]->AsNumber());
+		OutTransform.RotationQuaternion.Z = static_cast<float>((*QuatArray)[2]->AsNumber());
+		OutTransform.RotationQuaternion.W = static_cast<float>((*QuatArray)[3]->AsNumber());
+	}
+	else
+	{
+		OutReport.AddError(
+			TEXT("TRANSFORM_MALFORMED_QUATERNION"),
+			FString::Printf(TEXT("Object '%s' (%s) transform has malformed 'rotation_quaternion'"), *ObjectName, *ObjectId),
+			ObjectId);
+	}
+
+	// Euler
+	const TArray<TSharedPtr<FJsonValue>>* EulerArray;
+	if (JsonObject->TryGetArrayField(TEXT("rotation_euler"), EulerArray) && EulerArray && EulerArray->Num() == 3)
+	{
+		OutTransform.RotationEuler.X = static_cast<float>((*EulerArray)[0]->AsNumber());
+		OutTransform.RotationEuler.Y = static_cast<float>((*EulerArray)[1]->AsNumber());
+		OutTransform.RotationEuler.Z = static_cast<float>((*EulerArray)[2]->AsNumber());
+	}
+
+	JsonObject->TryGetStringField(TEXT("rotation_mode"), OutTransform.RotationMode);
+
+	// Scale
+	const TArray<TSharedPtr<FJsonValue>>* ScaleArray;
+	if (JsonObject->TryGetArrayField(TEXT("scale"), ScaleArray) && ScaleArray && ScaleArray->Num() == 3)
+	{
+		OutTransform.Scale.X = static_cast<float>((*ScaleArray)[0]->AsNumber());
+		OutTransform.Scale.Y = static_cast<float>((*ScaleArray)[1]->AsNumber());
+		OutTransform.Scale.Z = static_cast<float>((*ScaleArray)[2]->AsNumber());
+	}
+	else
+	{
+		OutReport.AddError(
+			TEXT("TRANSFORM_MALFORMED_SCALE"),
+			FString::Printf(TEXT("Object '%s' (%s) transform has malformed 'scale'"), *ObjectName, *ObjectId),
+			ObjectId);
+	}
+
+	JsonObject->TryGetBoolField(TEXT("has_negative_scale"), OutTransform.bHasNegativeScale);
+
+	return true;
+}
+
+FTransform FBridgePackageReader::GetUnrealLocalTransform(const FBridgeObject& Object)
+{
+	return FBridgeTransformConverter::ToUnrealLocalTransform(Object.Transform);
+}
+
+FTransform FBridgePackageReader::GetUnrealWorldTransform(
+	const FBridgePackageData& PackageData,
+	const FBridgeObject& Object)
+{
+	// Build hierarchy chain from root to object
+	TArray<const FBridgeObject*> Chain;
+	const FBridgeObject* Curr = &Object;
+
+	TSet<FString> Visited;
+	while (Curr)
+	{
+		if (Visited.Contains(Curr->Id))
+		{
+			// Safeguard against cycle
+			break;
+		}
+		Visited.Add(Curr->Id);
+		Chain.Insert(Curr, 0);
+
+		if (Curr->HasParent())
+		{
+			Curr = PackageData.FindObjectById(Curr->ParentId);
+		}
+		else
+		{
+			Curr = nullptr;
+		}
+	}
+
+	// Accumulate transforms from root down to this object
+	FTransform AccumulatedTransform = FTransform::Identity;
+	for (const FBridgeObject* Node : Chain)
+	{
+		FTransform LocalTransform = FBridgeTransformConverter::ToUnrealLocalTransform(Node->Transform);
+		AccumulatedTransform = FBridgeTransformConverter::ComputeWorldTransform(LocalTransform, &AccumulatedTransform);
+	}
+
+	return AccumulatedTransform;
+}

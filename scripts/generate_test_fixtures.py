@@ -1,0 +1,423 @@
+"""
+generate_test_fixtures.py
+=========================
+Generates the 13 minimal deterministic .bubridge test fixtures required for
+Milestone 4 Unreal package reader validation.
+"""
+
+import json
+from pathlib import Path
+import shutil
+
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "test_assets" / "fixtures"
+
+FIXED_TIMESTAMP = "2026-10-05T12:00:00Z"
+
+BASE_MANIFEST = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "format": "BUBRIDGE",
+    "version": "0.1.0",
+    "created_at": FIXED_TIMESTAMP,
+    "generator": {
+        "name": "BlenderUnrealBridgeAddon",
+        "version": "0.1.0"
+    },
+    "source": {
+        "application": "Blender",
+        "version": "4.5.3 LTS",
+        "scene_name": "FixtureScene",
+        "unit_length": "meter",
+        "unit_scale": 1.0
+    },
+    "target": {
+        "application": "Unreal Engine",
+        "version": "5.x",
+        "unit_length": "centimeter"
+    },
+    "coordinate_system": {
+        "up_axis": "Z",
+        "forward_axis": "X",
+        "right_axis": "Y",
+        "handedness": "left_handed",
+        "unit": "centimeter"
+    },
+    "content_summary": {
+        "object_count": 1,
+        "mesh_count": 0,
+        "material_count": 0,
+        "texture_count": 0
+    }
+}
+
+BASE_SCENE = {
+    "name": "FixtureScene",
+    "collections": [],
+    "environment": {
+        "background_color": [0.05, 0.05, 0.05, 1.0],
+        "ambient_intensity": 1.0
+    }
+}
+
+IDENTITY_XFORM = {
+    "location": [0.0, 0.0, 0.0],
+    "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+    "rotation_euler": [0.0, 0.0, 0.0],
+    "rotation_mode": "QUATERNION",
+    "scale": [1.0, 1.0, 1.0],
+    "has_negative_scale": False,
+    "origin_offset": [0.0, 0.0, 0.0]
+}
+
+
+def write_fixture(name: str, manifest: dict, scene: dict, objects: list):
+    pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
+    if pkg_dir.exists():
+        shutil.rmtree(pkg_dir)
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "meshes").mkdir(exist_ok=True)
+    (pkg_dir / "textures").mkdir(exist_ok=True)
+    (pkg_dir / "metadata").mkdir(exist_ok=True)
+
+    manifest_copy = dict(manifest)
+    manifest_copy["content_summary"] = dict(manifest_copy.get("content_summary", {}))
+    manifest_copy["content_summary"]["object_count"] = len(objects)
+
+    (pkg_dir / "manifest.json").write_text(json.dumps(manifest_copy, indent=2), encoding="utf-8")
+    (pkg_dir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
+    (pkg_dir / "objects.json").write_text(json.dumps({"objects": objects}, indent=2), encoding="utf-8")
+    report = {
+        "timestamp": FIXED_TIMESTAMP,
+        "status": "SUCCESS",
+        "summary": {"info_count": 0, "warning_count": 0, "error_count": 0},
+        "messages": []
+    }
+    (pkg_dir / "metadata" / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+
+def generate_all_fixtures():
+    FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1. Identity scene
+    write_fixture(
+        "01_identity_scene",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000001",
+            "name": "IdentityObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 2. Single translated object
+    tx_xform = dict(IDENTITY_XFORM)
+    tx_xform["location"] = [250.0, -100.0, 50.0]
+    write_fixture(
+        "02_single_translated",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000002",
+            "name": "TranslatedObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": tx_xform,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 3. Rotated object (90 deg around Z)
+    rot_xform = dict(IDENTITY_XFORM)
+    rot_xform["rotation_quaternion"] = [0.0, 0.0, 0.7071068, 0.7071068]
+    rot_xform["rotation_euler"] = [0.0, 0.0, 90.0]
+    write_fixture(
+        "03_rotated_object",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000003",
+            "name": "RotatedObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": rot_xform,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 4. Scaled object (non-uniform)
+    sc_xform = dict(IDENTITY_XFORM)
+    sc_xform["scale"] = [2.0, 0.5, 3.0]
+    write_fixture(
+        "04_scaled_object",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000004",
+            "name": "ScaledObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": sc_xform,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 5. Negative scale object
+    neg_xform = dict(IDENTITY_XFORM)
+    neg_xform["scale"] = [-1.0, 1.0, 1.0]
+    neg_xform["has_negative_scale"] = True
+    write_fixture(
+        "05_negative_scale",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000005",
+            "name": "NegativeScaleObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": neg_xform,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 6. Parent-child hierarchy
+    p_xform = dict(IDENTITY_XFORM)
+    p_xform["location"] = [100.0, 0.0, 0.0]
+    c_xform = dict(IDENTITY_XFORM)
+    c_xform["location"] = [0.0, 50.0, 0.0]
+    write_fixture(
+        "06_parent_child",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_00000006",
+                "name": "ParentObj",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": p_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000007",
+                "name": "ChildObj",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000006",
+                "transform": c_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 7. Deep hierarchy (Grandparent -> Parent -> Child)
+    gp_xform = dict(IDENTITY_XFORM)
+    gp_xform["location"] = [0.0, 0.0, 100.0]
+    write_fixture(
+        "07_deep_hierarchy",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_00000008",
+                "name": "Grandparent",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": gp_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000009",
+                "name": "Parent",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000008",
+                "transform": p_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000000a",
+                "name": "Child",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000009",
+                "transform": c_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 8. Invalid manifest (wrong format identifier)
+    inv_manifest = dict(BASE_MANIFEST)
+    inv_manifest["format"] = "INVALID_FORMAT"
+    write_fixture(
+        "08_invalid_manifest",
+        inv_manifest,
+        BASE_SCENE,
+        [{
+            "id": "obj_0000000b",
+            "name": "Obj",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 9. Duplicate ID
+    write_fixture(
+        "09_duplicate_id",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_0000000c",
+                "name": "ObjA",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000000c",  # Duplicate
+                "name": "ObjB",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 10. Broken parent reference
+    write_fixture(
+        "10_broken_parent",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_0000000d",
+            "name": "OrphanObj",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": "obj_nonexistent_parent",
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 11. Hierarchy cycle (A -> B -> A)
+    write_fixture(
+        "11_hierarchy_cycle",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_0000000e",
+                "name": "CycleNodeA",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_0000000f",
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000000f",
+                "name": "CycleNodeB",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_0000000e",
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 12. Invalid transform (non-finite / missing numbers)
+    bad_xform = dict(IDENTITY_XFORM)
+    bad_xform["location"] = ["invalid_str", 0.0, 0.0]
+    write_fixture(
+        "12_invalid_transform",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000010",
+            "name": "BadXformObj",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": bad_xform,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 13. Unsupported protocol version (Major 9)
+    unsupp_manifest = dict(BASE_MANIFEST)
+    unsupp_manifest["version"] = "9.0.0"
+    write_fixture(
+        "13_unsupported_version",
+        unsupp_manifest,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000011",
+            "name": "FutureVersionObj",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    print(f"Generated 13 test fixtures in {FIXTURES_DIR}")
+
+
+if __name__ == "__main__":
+    generate_all_fixtures()

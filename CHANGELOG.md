@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 4] - 2026-10-05
+
+### Added
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDiagnostics.h` — Diagnostic severity levels (`EBridgeDiagnosticLevel`), structured messages (`FBridgeDiagnosticMessage`), and reports (`FBridgeValidationReport`).
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h` — Unreal C++ data representations for manifest, scene, objects, and canonical transforms (`FBridgeManifest`, `FBridgeScene`, `FBridgeObject`, `FBridgeCanonicalTransform`, `FBridgePackageData`).
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeTransformConverter.h` & `Private/Core/BridgeTransformConverter.cpp` — Authoritative Unreal-side transform converter:
+  - Canonical location $[x, y, z]$ (cm) → Unreal `FVector`
+  - Canonical unit quaternion $[x, y, z, w]$ → Unreal `FQuat` & `FRotator`
+  - Canonical scale $[sx, sy, sz]$ → Unreal `FVector` with negative reflection preservation
+  - Local transform `FTransform` construction
+  - Parent-child world transform composition: `WorldTransform = LocalTransform * ParentWorldTransform`
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageValidator.h` & `Private/Reader/BridgePackageValidator.cpp` — Full package validator enforcing:
+  - Format (`BUBRIDGE`) and version compatibility (v0.1.x)
+  - Canonical coordinate axes and units (Z-Up, X-Forward, Y-Right, left_handed, centimeter)
+  - Bridge ID format (`obj_<hex>`) and strict uniqueness
+  - Referential hierarchy integrity (no broken parents, no self-parenting, cycle detection)
+  - Finite floating-point transform validation
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageReader.h` & `Private/Reader/BridgePackageReader.cpp` — Public package reader API:
+  - `LoadPackage()`: Verifies filesystem structure, parses `manifest.json`, `scene.json`, `objects.json` using Unreal JSON APIs, validates metadata, and builds package data.
+  - `GetUnrealLocalTransform()`: Evaluates native Unreal local `FTransform`.
+  - `GetUnrealWorldTransform()`: Computes accumulated native Unreal world `FTransform` across hierarchy.
+- `scripts/generate_test_fixtures.py` — Deterministic test fixture generator producing 13 `.bubridge` fixtures covering valid and malformed edge cases.
+- `test_assets/fixtures/` — 13 deterministic `.bubridge` test packages.
+- `unreal_plugin/Tests/test_unreal_package_reader.py` — 14-test engine-independent automated test suite covering all fixtures, transform math, and Milestone 3 integration.
+
+### Validation Status (Milestone 4)
+- **Engine-Independent Tests (`test_unreal_package_reader.py`)**: **14/14 PASSED** (0 failures, 0 errors in 0.139s).
+  - Fixtures 01-07 (identity, translation, rotation, scale, negative scale, parent-child, deep hierarchy): **PASSED**
+  - Fixtures 08-13 (invalid manifest, duplicate ID, broken parent, hierarchy cycle, invalid transform, unsupported version): **PASSED**
+  - Milestone 3 Integration (`DemoScene.bubridge`): **PASSED** with exact transform matching (parent locator at $(200, 100, 300)$ cm, child mesh world at $(200, 100, 400)$ cm).
+- **Blender 4.5.3 LTS Runtime Verification**:
+  - `test_package_serialization.py`: **11/11 PASSED**
+  - `test_transforms.py`: **54/54 PASSED**
+  - `test_scene_collector.py`: **22/22 PASSED**
+  - `test_addon_registration.py`: **2/2 PASSED**
+  - **Total Blender Tests**: **89/89 PASSED** (0 failures, 0 errors in 0.117s)
+- **Bridge Core C++ (MSVC 2022 via CMake)**:
+  - `VersionTest`: **1/1 PASSED** (0 errors, 0 warnings)
+- **Unreal Engine Build Tool Status**:
+  - Host environment contains partial `UE_5.8` binaries requiring .NET 10.0 runtime (host has .NET 9.0). In strict accordance with AGENTS.md and user rules, the Unreal plugin is reported as **structurally validated and verified via engine-independent test suite, but not compiled with UBT**.
+
 ## [Milestone 3] - 2026-10-05
 
 ### Added
