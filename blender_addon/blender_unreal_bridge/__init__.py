@@ -12,6 +12,7 @@ bl_info = {
 
 import bpy
 from .version import VERSION_STRING, FORMAT_NAME
+from .collectors.scene_collector import collect_scene
 
 
 class BUBRIDGE_OT_check_status(bpy.types.Operator):
@@ -24,6 +25,31 @@ class BUBRIDGE_OT_check_status(bpy.types.Operator):
     def execute(self, context):
         message = f"{FORMAT_NAME} Add-on v{VERSION_STRING} is active."
         self.report({"INFO"}, message)
+        return {"FINISHED"}
+
+
+class BUBRIDGE_OT_collect_scene(bpy.types.Operator):
+    """Inspect the current Blender scene and collect object metadata."""
+    bl_idname = "bubridge.collect_scene"
+    bl_label = "Collect Scene"
+    bl_description = (
+        "Traverses the active scene, assigns stable Bridge IDs to all supported "
+        "objects, and reports a summary of collected metadata"
+    )
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        result = collect_scene(context.scene)
+        object_count = len(result.objects)
+        self.report(
+            {"INFO"},
+            f"[BUBRIDGE] Scene '{result.scene_name}': {object_count} object(s) collected. "
+            f"{len(result.warnings)} warning(s), {len(result.errors)} error(s).",
+        )
+        for msg in result.warnings:
+            self.report({"WARNING"}, msg)
+        for msg in result.errors:
+            self.report({"ERROR"}, msg)
         return {"FINISHED"}
 
 
@@ -42,10 +68,14 @@ class BUBRIDGE_PT_main_panel(bpy.types.Panel):
         col.label(text=f"Format: {FORMAT_NAME}")
         col.separator()
         col.operator("bubridge.check_status", icon="CHECKMARK")
+        col.separator()
+        col.label(text="Scene Inspection:", icon="SCENE_DATA")
+        col.operator("bubridge.collect_scene", icon="VIEWZOOM")
 
 
 classes = (
     BUBRIDGE_OT_check_status,
+    BUBRIDGE_OT_collect_scene,
     BUBRIDGE_PT_main_panel,
 )
 
