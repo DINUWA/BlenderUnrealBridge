@@ -13,6 +13,7 @@ bl_info = {
 import bpy
 from .version import VERSION_STRING, FORMAT_NAME
 from .collectors.scene_collector import collect_scene
+from .serialization.package_writer import create_bridge_package
 
 
 class BUBRIDGE_OT_check_status(bpy.types.Operator):
@@ -53,6 +54,26 @@ class BUBRIDGE_OT_collect_scene(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BUBRIDGE_OT_export_package(bpy.types.Operator):
+    """Export the current Blender scene to a .bubridge package."""
+    bl_idname = "bubridge.export_package"
+    bl_label = "Export Package"
+    bl_description = (
+        "Collects scene data and canonical transforms, validates the metadata, "
+        "and generates a .bubridge package"
+    )
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        try:
+            pkg_path = create_bridge_package(context.scene)
+            self.report({"INFO"}, f"[BUBRIDGE] Package created: {pkg_path.name}")
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"[BUBRIDGE] Export failed: {exc}")
+            return {"CANCELLED"}
+
+
 class BUBRIDGE_PT_main_panel(bpy.types.Panel):
     """Main Sidebar Panel for Blender Unreal Bridge."""
     bl_label = "Blender ↔ Unreal Bridge"
@@ -71,11 +92,15 @@ class BUBRIDGE_PT_main_panel(bpy.types.Panel):
         col.separator()
         col.label(text="Scene Inspection:", icon="SCENE_DATA")
         col.operator("bubridge.collect_scene", icon="VIEWZOOM")
+        col.separator()
+        col.label(text="Package Export:", icon="EXPORT")
+        col.operator("bubridge.export_package", icon="PACKAGE")
 
 
 classes = (
     BUBRIDGE_OT_check_status,
     BUBRIDGE_OT_collect_scene,
+    BUBRIDGE_OT_export_package,
     BUBRIDGE_PT_main_panel,
 )
 

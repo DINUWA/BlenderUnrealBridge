@@ -1,0 +1,322 @@
+"""
+Package Validator
+-----------------
+Validates Bridge Data Package structures against DATA_PROTOCOL.md specifications
+prior to serialization and writing to disk.
+
+Strictly enforces:
+  - Manifest correctness (version, format, coordinate system, units)
+  - Stable Bridge ID format and uniqueness
+  - Referential integrity (parent_id existence and cycle detection)
+  - Transform schema validity and finite numerical values
+  - Collection hierarchy consistency
+"""
+
+import math
+import re
+from typing import Any, Dict, List, Optional, Set
+
+from ..version import FORMAT_NAME, FORMAT_VERSION
+
+
+class DiagnosticMessage:
+    """Represents a structured diagnostic message conforming to DATA_PROTOCOL.md §5."""
+
+    __slots__ = ("level", "code", "message", "target_id")
+
+    def __init__(self, level: str, code: str, message: str, target_id: Optional[str] = None):
+        self.level = level  # "INFO", "WARNING", "ERROR"
+        self.code = code
+        self.message = message
+        self.target_id = target_id
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "level": self.level,
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.target_id is not None:
+            d["target_id"] = self.target_id
+        return d
+
+
+class ValidationResult:
+    """Stores the outcome of package validation."""
+
+    def __init__(self):
+        self.messages: List[DiagnosticMessage] = []
+
+    @property
+    def is_valid(self) -> bool:
+        """Returns True if no ERROR-level messages were recorded."""
+        return not any(m.level == "ERROR" for m in self.messages)
+
+    @property
+    def error_count(self) -> int:
+        return sum(1 for m in self.messages if m.level == "ERROR")
+
+    @property
+    def warning_count(self) -> int:
+        return sum(1 for m in self.messages if m.level == "WARNING")
+
+    @property
+    def info_count(self) -> int:
+        return sum(1 for m in self.messages if m.level == "INFO")
+
+    def add_info(self, code: str, message: str, target_id: Optional[str] = None) -> None:
+        self.messages.append(DiagnosticMessage("INFO", code, message, target_id))
+
+    def add_warning(self, code: str, message: str, target_id: Optional[str] = None) -> None:
+        self.messages.append(DiagnosticMessage("WARNING", code, message, target_id))
+
+    def add_error(self, code: str, message: str, target_id: Optional[str] = None) -> None:
+        self.messages.append(DiagnosticMessage("ERROR", code, message, target_id))
+
+    def to_report_dict(self, timestamp: str) -> Dict[str, Any]:
+        """Convert validation diagnostics to report.json format."""
+        if not self.is_valid:
+            status = "FAILED"
+        elif self.warning_count > 0:
+            status = "SUCCESS_WITH_WARNINGS"
+        else:
+            status = "SUCCESS"
+
+        return {
+            "timestamp": timestamp,
+            "status": status,
+            "summary": {
+                "info_count": self.info_count,
+                "warning_count": self.warning_count,
+                "error_count": self.error_count,
+            },
+            "messages": [m.to_dict() for m in self.messages],
+        }
+
+
+ID_PATTERN = re.compile(r"^obj_[0-9a-fA-F]{8,}$")
+
+
+class PackageValidator:
+    """Validates complete bridge package metadata models."""
+
+    @classmethod
+    def validate_manifest(cls, manifest: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates manifest.json contents."""
+        if manifest.get("format") != FORMAT_NAME:
+            result.add_error(
+                "MANIFEST_INVALID_FORMAT",
+                f"Expected format '{FORMAT_NAME}', got '{manifest.get('format')}'",
+            )
+
+        if manifest.get("version") != FORMAT_VERSION:
+            result.add_error(
+                "MANIFEST_INVALID_VERSION",
+                f"Expected format version '{FORMAT_VERSION}', got '{manifest.get('version')}'",
+            )
+
+        coord = manifest.get("coordinate_system", {})
+        if coord.get("up_axis") != "Z":
+            result.add_error(
+                "MANIFEST_INVALID_UP_AXIS",
+                f"Expected up_axis 'Z', got '{coord.get('up_axis')}'",
+            )
+        if coord.get("forward_axis") != "X":
+            result.add_error(
+                "MANIFEST_INVALID_FORWARD_AXIS",
+                f"Expected forward_axis 'X', got '{coord.get('forward_axis')}'",
+            )
+        if coord.get("right_axis") != "Y":
+            result.add_error(
+                "MANIFEST_INVALID_RIGHT_AXIS",
+                f"Expected right_axis 'Y', got '{coord.get('right_axis')}'",
+            )
+        if coord.get("handedness") != "left_handed":
+            result.add_error(
+                "MANIFEST_INVALID_HANDEDNESS",
+                f"Expected handedness 'left_handed', got '{coord.get('handedness')}'",
+            )
+        if coord.get("unit") != "centimeter":
+            result.add_error(
+                "MANIFEST_INVALID_UNIT",
+                f"Expected canonical unit 'centimeter', got '{coord.get('unit')}'",
+            )
+
+        source = manifest.get("source", {})
+        if not source.get("application"):
+            result.add_error("MANIFEST_MISSING_SOURCE", "Manifest missing source application name")
+        if not source.get("version"):
+            result.add_error("MANIFEST_MISSING_SOURCE_VERSION", "Manifest missing source application version")
+
+    @classmethod
+    def validate_scene(cls, scene: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates scene.json contents."""
+        if not scene.get("name"):
+            result.add_error("SCENE_MISSING_NAME", "Scene metadata missing 'name'")
+
+        collections = scene.get("collections", [])
+        col_ids: Set[str] = set()
+        for col in collections:
+            col_id = col.get("id")
+            if not col_id:
+                result.add_error("COLLECTION_MISSING_ID", "Collection missing 'id'")
+                continue
+            if col_id in col_ids:
+                result.add_error("COLLECTION_DUPLICATE_ID", f"Duplicate collection ID: {col_id}", col_id)
+            col_ids.add(col_id)
+
+        # Validate collection parent references
+        for col in collections:
+            parent_id = col.get("parent_id")
+            if parent_id is not None and parent_id not in col_ids:
+                result.add_error(
+                    "COLLECTION_BROKEN_PARENT",
+                    f"Collection '{col.get('id')}' references non-existent parent '{parent_id}'",
+                    col.get("id"),
+                )
+
+    @classmethod
+    def validate_objects(cls, objects_data: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates objects.json contents, including ID uniqueness, hierarchy, and transforms."""
+        objects = objects_data.get("objects", [])
+        seen_ids: Set[str] = set()
+        parent_map: Dict[str, Optional[str]] = {}
+
+        for obj in objects:
+            obj_id = obj.get("id")
+            name = obj.get("name", "<unnamed>")
+
+            # 1. ID format and uniqueness
+            if not obj_id:
+                result.add_error("OBJECT_MISSING_ID", f"Object '{name}' is missing 'id'")
+                continue
+
+            if not ID_PATTERN.match(obj_id):
+                result.add_error(
+                    "OBJECT_INVALID_ID_FORMAT",
+                    f"Object '{name}' ID '{obj_id}' does not match pattern 'obj_<hex>'",
+                    obj_id,
+                )
+
+            if obj_id in seen_ids:
+                result.add_error(
+                    "OBJECT_DUPLICATE_ID",
+                    f"Duplicate Bridge ID detected: '{obj_id}' on object '{name}'",
+                    obj_id,
+                )
+            seen_ids.add(obj_id)
+
+            parent_id = obj.get("parent_id")
+            parent_map[obj_id] = parent_id
+
+            # 2. Transform validation
+            transform = obj.get("transform")
+            if not transform:
+                result.add_error("OBJECT_MISSING_TRANSFORM", f"Object '{name}' missing 'transform'", obj_id)
+            else:
+                cls._validate_transform(transform, obj_id, name, result)
+
+        # 3. Hierarchy referential integrity & cycle detection
+        for obj_id, parent_id in parent_map.items():
+            if parent_id is not None:
+                if parent_id not in seen_ids:
+                    result.add_error(
+                        "OBJECT_BROKEN_PARENT_REF",
+                        f"Object '{obj_id}' references non-existent parent '{parent_id}'",
+                        obj_id,
+                    )
+                elif parent_id == obj_id:
+                    result.add_error(
+                        "OBJECT_PARENT_SELF_CYCLE",
+                        f"Object '{obj_id}' cannot be its own parent",
+                        obj_id,
+                    )
+
+        # Cycle detection
+        for start_id in seen_ids:
+            visited = set()
+            curr = start_id
+            while curr is not None:
+                if curr in visited:
+                    result.add_error(
+                        "OBJECT_HIERARCHY_CYCLE",
+                        f"Parent cycle detected involving object '{curr}'",
+                        curr,
+                    )
+                    break
+                visited.add(curr)
+                curr = parent_map.get(curr)
+
+    @classmethod
+    def _validate_transform(
+        cls,
+        transform: Dict[str, Any],
+        obj_id: str,
+        name: str,
+        result: ValidationResult,
+    ) -> None:
+        """Validates numerical integrity of a canonical transform block."""
+        # Location
+        loc = transform.get("location")
+        if not isinstance(loc, list) or len(loc) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in loc):
+            result.add_error(
+                "TRANSFORM_INVALID_LOCATION",
+                f"Object '{name}' ({obj_id}) has invalid location: {loc}",
+                obj_id,
+            )
+
+        # Quaternion [x, y, z, w]
+        quat = transform.get("rotation_quaternion")
+        if not isinstance(quat, list) or len(quat) != 4 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in quat):
+            result.add_error(
+                "TRANSFORM_INVALID_QUATERNION",
+                f"Object '{name}' ({obj_id}) has invalid quaternion: {quat}",
+                obj_id,
+            )
+        else:
+            # Check unit length within tolerance
+            length_sq = sum(v * v for v in quat)
+            if abs(length_sq - 1.0) > 0.05:
+                result.add_warning(
+                    "TRANSFORM_QUATERNION_NOT_NORMALIZED",
+                    f"Object '{name}' ({obj_id}) quaternion is not normalized (length^2 = {length_sq:.4f})",
+                    obj_id,
+                )
+
+        # Euler
+        euler = transform.get("rotation_euler")
+        if not isinstance(euler, list) or len(euler) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in euler):
+            result.add_error(
+                "TRANSFORM_INVALID_EULER",
+                f"Object '{name}' ({obj_id}) has invalid Euler rotation: {euler}",
+                obj_id,
+            )
+
+        # Scale
+        scale = transform.get("scale")
+        if not isinstance(scale, list) or len(scale) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in scale):
+            result.add_error(
+                "TRANSFORM_INVALID_SCALE",
+                f"Object '{name}' ({obj_id}) has invalid scale: {scale}",
+                obj_id,
+            )
+        elif any(v == 0.0 for v in scale):
+            result.add_warning(
+                "TRANSFORM_ZERO_SCALE",
+                f"Object '{name}' ({obj_id}) has zero scale on one or more axes: {scale}",
+                obj_id,
+            )
+
+    @classmethod
+    def validate_package(
+        cls,
+        manifest: Dict[str, Any],
+        scene: Dict[str, Any],
+        objects: Dict[str, Any],
+    ) -> ValidationResult:
+        """Runs full validation suite on package components."""
+        result = ValidationResult()
+        cls.validate_manifest(manifest, result)
+        cls.validate_scene(scene, result)
+        cls.validate_objects(objects, result)
+        return result
