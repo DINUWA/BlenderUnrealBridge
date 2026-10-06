@@ -45,8 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Total Blender Tests**: **89/89 PASSED** (0 failures, 0 errors in 0.117s)
 - **Bridge Core C++ (MSVC 2022 via CMake)**:
   - `VersionTest`: **1/1 PASSED** (0 errors, 0 warnings)
-- **Unreal Engine Build Tool Status**:
-  - Host environment contains partial `UE_5.8` binaries requiring .NET 10.0 runtime (host has .NET 9.0). In strict accordance with AGENTS.md and user rules, the Unreal plugin is reported as **structurally validated and verified via engine-independent test suite, but not compiled with UBT**.
+- **Unreal Engine 5.8 Build Tool (UBT) Compilation**:
+  - Compiler: MSVC 14.44.35229 toolchain / Windows 10.0.22621.0 SDK via .NET 10.0.401 runtime.
+  - Target: `UE_Bridge_UBT_TestEditor` (Win64 Development).
+  - Result: **Compilation Succeeded (0 errors, 0 warnings)**.
+  - Output Binaries: `UnrealEditor-BlenderUnrealBridge.dll` (199 KB), `UnrealEditor-BlenderUnrealBridge.pdb`, `UnrealEditor.modules`.
 
 ## [Milestone 3] - 2026-10-05
 
