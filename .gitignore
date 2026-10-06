@@ -59,6 +59,7 @@ DerivedDataCache/
 *.sln
 .vscode/
 .idea/
+UE_Bridge_UBT_Test/
 
 # Package outputs
 *.bubridge/
