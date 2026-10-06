@@ -74,3 +74,43 @@ def has_id(obj) -> bool:
         True if the object has a bubridge_id custom property.
     """
     return BUBRIDGE_ID_KEY in obj
+
+
+def _generate_mesh_id() -> str:
+    """Generate a new unique Bridge Mesh ID string in the format 'mesh_XXXXXXXX'."""
+    return "mesh_" + uuid.uuid4().hex[:8]
+
+
+def ensure_mesh_id(mesh) -> str:
+    """
+    Return the existing bubridge_id for a Blender Mesh datablock, or generate and
+    assign a new one if none exists.
+
+    Args:
+        mesh: A bpy.types.Mesh instance.
+
+    Returns:
+        The stable string Bridge Mesh ID for this mesh datablock.
+    """
+    existing = mesh.get(BUBRIDGE_ID_KEY)
+    if existing:
+        return str(existing)
+
+    new_id = _generate_mesh_id()
+    mesh[BUBRIDGE_ID_KEY] = new_id
+    return new_id
+
+
+def get_mesh_id(mesh) -> str | None:
+    """
+    Return the existing bubridge_id for a Blender Mesh datablock without creating one.
+
+    Args:
+        mesh: A bpy.types.Mesh instance.
+
+    Returns:
+        The existing Mesh ID string, or None if the mesh has no bubridge_id.
+    """
+    value = mesh.get(BUBRIDGE_ID_KEY)
+    return str(value) if value is not None else None
+

@@ -44,18 +44,21 @@ bool FBridgePackageReader::LoadPackage(
 		return false;
 	}
 
-	// 5. Build fast lookup ID map
+	// 5. Load referenced mesh assets from meshes/
+	LoadMeshes(PackageDirectory, OutPackageData.Objects, OutPackageData.Meshes, OutReport);
+
+	// 6. Build fast lookup ID map
 	OutPackageData.RebuildIdMap();
 
-	// 6. Execute full protocol validation
+	// 7. Execute full protocol validation
 	if (!FBridgePackageValidator::ValidatePackage(OutPackageData, OutReport))
 	{
-		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata or hierarchy failed validation"));
+		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, or hierarchy failed validation"));
 		return false;
 	}
 
-	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects"),
-		*OutPackageData.Scene.Name, OutPackageData.Objects.Num()));
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects and %d meshes"),
+		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num()));
 
 	return true;
 }
@@ -262,6 +265,33 @@ bool FBridgePackageReader::ParseObjects(
 				BridgeObj.Id);
 		}
 
+		// Parse mesh reference if present
+		const TSharedPtr<FJsonObject>* MeshRefObj;
+		if (ObjEntry->TryGetObjectField(TEXT("mesh_reference"), MeshRefObj) && MeshRefObj && (*MeshRefObj).IsValid())
+		{
+			(*MeshRefObj)->TryGetStringField(TEXT("mesh_id"), BridgeObj.MeshReference.MeshId);
+			(*MeshRefObj)->TryGetStringField(TEXT("file"), BridgeObj.MeshReference.File);
+			(*MeshRefObj)->TryGetNumberField(TEXT("submesh_index"), BridgeObj.MeshReference.SubmeshIndex);
+		}
+
+		// Parse material slots if present
+		const TArray<TSharedPtr<FJsonValue>>* MatSlotsArray;
+		if (ObjEntry->TryGetArrayField(TEXT("material_slots"), MatSlotsArray) && MatSlotsArray)
+		{
+			for (const TSharedPtr<FJsonValue>& SlotVal : *MatSlotsArray)
+			{
+				const TSharedPtr<FJsonObject>& SlotObj = SlotVal->AsObject();
+				if (SlotObj.IsValid())
+				{
+					FBridgeMaterialSlot Slot;
+					SlotObj->TryGetNumberField(TEXT("slot_index"), Slot.SlotIndex);
+					SlotObj->TryGetStringField(TEXT("slot_name"), Slot.SlotName);
+					SlotObj->TryGetStringField(TEXT("material_id"), Slot.MaterialId);
+					BridgeObj.MaterialSlots.Add(Slot);
+				}
+			}
+		}
+
 		OutObjects.Add(BridgeObj);
 	}
 
@@ -336,6 +366,186 @@ bool FBridgePackageReader::ParseTransform(
 	}
 
 	JsonObject->TryGetBoolField(TEXT("has_negative_scale"), OutTransform.bHasNegativeScale);
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseMesh(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeMeshData& OutMesh,
+	FBridgeValidationReport& OutReport)
+{
+	JsonObject->TryGetStringField(TEXT("format"), OutMesh.Format);
+	JsonObject->TryGetStringField(TEXT("version"), OutMesh.Version);
+	JsonObject->TryGetStringField(TEXT("mesh_id"), OutMesh.MeshId);
+	JsonObject->TryGetStringField(TEXT("name"), OutMesh.Name);
+
+	// Counts
+	const TSharedPtr<FJsonObject>* CountsObj;
+	if (JsonObject->TryGetObjectField(TEXT("counts"), CountsObj) && CountsObj)
+	{
+		(*CountsObj)->TryGetNumberField(TEXT("vertex_count"), OutMesh.VertexCount);
+		(*CountsObj)->TryGetNumberField(TEXT("triangle_count"), OutMesh.TriangleCount);
+		(*CountsObj)->TryGetNumberField(TEXT("uv_layer_count"), OutMesh.UVLayerCount);
+		(*CountsObj)->TryGetNumberField(TEXT("material_slot_count"), OutMesh.MaterialSlotCount);
+	}
+
+	// Bounds
+	const TSharedPtr<FJsonObject>* BoundsObj;
+	if (JsonObject->TryGetObjectField(TEXT("bounds"), BoundsObj) && BoundsObj)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* MinArray;
+		if ((*BoundsObj)->TryGetArrayField(TEXT("min"), MinArray) && MinArray && MinArray->Num() == 3)
+		{
+			OutMesh.Bounds.Min = FVector3f(
+				static_cast<float>((*MinArray)[0]->AsNumber()),
+				static_cast<float>((*MinArray)[1]->AsNumber()),
+				static_cast<float>((*MinArray)[2]->AsNumber()));
+		}
+		const TArray<TSharedPtr<FJsonValue>>* MaxArray;
+		if ((*BoundsObj)->TryGetArrayField(TEXT("max"), MaxArray) && MaxArray && MaxArray->Num() == 3)
+		{
+			OutMesh.Bounds.Max = FVector3f(
+				static_cast<float>((*MaxArray)[0]->AsNumber()),
+				static_cast<float>((*MaxArray)[1]->AsNumber()),
+				static_cast<float>((*MaxArray)[2]->AsNumber()));
+		}
+	}
+
+	// Vertices
+	const TArray<TSharedPtr<FJsonValue>>* VertArray;
+	if (JsonObject->TryGetArrayField(TEXT("vertices"), VertArray) && VertArray)
+	{
+		OutMesh.Vertices.Reserve(VertArray->Num());
+		for (const TSharedPtr<FJsonValue>& VVal : *VertArray)
+		{
+			const TArray<TSharedPtr<FJsonValue>>* CoArray;
+			if (VVal->TryGetArray(CoArray) && CoArray && CoArray->Num() == 3)
+			{
+				OutMesh.Vertices.Add(FVector3f(
+					static_cast<float>((*CoArray)[0]->AsNumber()),
+					static_cast<float>((*CoArray)[1]->AsNumber()),
+					static_cast<float>((*CoArray)[2]->AsNumber())));
+			}
+		}
+	}
+
+	// Triangles
+	const TArray<TSharedPtr<FJsonValue>>* TriArray;
+	if (JsonObject->TryGetArrayField(TEXT("triangles"), TriArray) && TriArray)
+	{
+		OutMesh.Triangles.Reserve(TriArray->Num());
+		for (const TSharedPtr<FJsonValue>& TVal : *TriArray)
+		{
+			const TSharedPtr<FJsonObject>& TriObj = TVal->AsObject();
+			if (!TriObj.IsValid()) continue;
+
+			FBridgeMeshTriangle Tri;
+			TriObj->TryGetNumberField(TEXT("material_slot_index"), Tri.MaterialSlotIndex);
+
+			const TArray<TSharedPtr<FJsonValue>>* IdxArray;
+			if (TriObj->TryGetArrayField(TEXT("vertex_indices"), IdxArray) && IdxArray && IdxArray->Num() == 3)
+			{
+				Tri.VertexIndices[0] = static_cast<int32>((*IdxArray)[0]->AsNumber());
+				Tri.VertexIndices[1] = static_cast<int32>((*IdxArray)[1]->AsNumber());
+				Tri.VertexIndices[2] = static_cast<int32>((*IdxArray)[2]->AsNumber());
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* NormArray;
+			if (TriObj->TryGetArrayField(TEXT("normals"), NormArray) && NormArray && NormArray->Num() == 3)
+			{
+				for (int32 c = 0; c < 3; ++c)
+				{
+					const TArray<TSharedPtr<FJsonValue>>* NCo;
+					if ((*NormArray)[c]->TryGetArray(NCo) && NCo && NCo->Num() == 3)
+					{
+						Tri.Normals[c] = FVector3f(
+							static_cast<float>((*NCo)[0]->AsNumber()),
+							static_cast<float>((*NCo)[1]->AsNumber()),
+							static_cast<float>((*NCo)[2]->AsNumber()));
+					}
+				}
+			}
+
+			const TArray<TSharedPtr<FJsonValue>>* UVArray;
+			if (TriObj->TryGetArrayField(TEXT("uvs"), UVArray) && UVArray && UVArray->Num() == 3)
+			{
+				for (int32 c = 0; c < 3; ++c)
+				{
+					const TArray<TSharedPtr<FJsonValue>>* UVCo;
+					if ((*UVArray)[c]->TryGetArray(UVCo) && UVCo && UVCo->Num() == 2)
+					{
+						Tri.UVs[c] = FVector2f(
+							static_cast<float>((*UVCo)[0]->AsNumber()),
+							static_cast<float>((*UVCo)[1]->AsNumber()));
+					}
+				}
+			}
+
+			OutMesh.Triangles.Add(Tri);
+		}
+	}
+
+	// Material slots
+	const TArray<TSharedPtr<FJsonValue>>* SlotArray;
+	if (JsonObject->TryGetArrayField(TEXT("material_slots"), SlotArray) && SlotArray)
+	{
+		for (const TSharedPtr<FJsonValue>& SVal : *SlotArray)
+		{
+			const TSharedPtr<FJsonObject>& SObj = SVal->AsObject();
+			if (SObj.IsValid())
+			{
+				FBridgeMaterialSlot Slot;
+				SObj->TryGetNumberField(TEXT("slot_index"), Slot.SlotIndex);
+				SObj->TryGetStringField(TEXT("slot_name"), Slot.SlotName);
+				SObj->TryGetStringField(TEXT("material_id"), Slot.MaterialId);
+				OutMesh.MaterialSlots.Add(Slot);
+			}
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::LoadMeshes(
+	const FString& PackageDirectory,
+	const TArray<FBridgeObject>& Objects,
+	TMap<FString, FBridgeMeshData>& OutMeshes,
+	FBridgeValidationReport& OutReport)
+{
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	// Find all unique mesh references in objects
+	TSet<FString> MeshFilesToLoad;
+	for (const FBridgeObject& Obj : Objects)
+	{
+		if (Obj.Type == TEXT("STATIC_MESH") && Obj.MeshReference.IsValid())
+		{
+			MeshFilesToLoad.Add(Obj.MeshReference.File);
+		}
+	}
+
+	for (const FString& RelFile : MeshFilesToLoad)
+	{
+		FString FullPath = FPaths::Combine(PackageDirectory, RelFile);
+		if (!PlatformFile.FileExists(*FullPath))
+		{
+			OutReport.AddError(
+				TEXT("MESH_FILE_NOT_FOUND"),
+				FString::Printf(TEXT("Referenced mesh file not found: '%s'"), *FullPath));
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> MeshJson;
+		if (ReadJsonFile(FullPath, MeshJson, OutReport))
+		{
+			FBridgeMeshData MeshData;
+			if (ParseMesh(MeshJson, MeshData, OutReport))
+			{
+				OutMeshes.Add(MeshData.MeshId, MeshData);
+			}
+		}
+	}
 
 	return true;
 }

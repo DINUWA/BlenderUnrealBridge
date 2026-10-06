@@ -95,6 +95,7 @@ class ValidationResult:
 
 
 ID_PATTERN = re.compile(r"^obj_[0-9a-fA-F]{8,}$")
+MESH_ID_PATTERN = re.compile(r"^mesh_[0-9a-fA-F]{8,}$")
 
 
 class PackageValidator:
@@ -308,15 +309,129 @@ class PackageValidator:
             )
 
     @classmethod
+    def validate_mesh(cls, mesh_data: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates canonical mesh payload against BUBRIDGE_MESH specifications."""
+        mesh_id = mesh_data.get("mesh_id", "<unnamed_mesh>")
+
+        if mesh_data.get("format") != "BUBRIDGE_MESH":
+            result.add_error(
+                "MESH_INVALID_FORMAT",
+                f"Mesh '{mesh_id}' format must be 'BUBRIDGE_MESH', got '{mesh_data.get('format')}'",
+                mesh_id,
+            )
+
+        if not mesh_id or not MESH_ID_PATTERN.match(mesh_id):
+            result.add_error(
+                "MESH_INVALID_ID_FORMAT",
+                f"Mesh ID '{mesh_id}' does not match pattern 'mesh_<hex>'",
+                mesh_id,
+            )
+
+        vertices = mesh_data.get("vertices")
+        if not isinstance(vertices, list):
+            result.add_error("MESH_MISSING_VERTICES", f"Mesh '{mesh_id}' missing 'vertices' array", mesh_id)
+            return
+
+        vertex_count = len(vertices)
+        for v_idx, v in enumerate(vertices):
+            if not isinstance(v, list) or len(v) != 3 or not all(isinstance(c, (int, float)) and math.isfinite(c) for c in v):
+                result.add_error(
+                    "MESH_NON_FINITE_COORDINATE",
+                    f"Mesh '{mesh_id}' vertex {v_idx} contains invalid or non-finite coordinate: {v}",
+                    mesh_id,
+                )
+                break
+
+        triangles = mesh_data.get("triangles")
+        if not isinstance(triangles, list):
+            result.add_error("MESH_MISSING_TRIANGLES", f"Mesh '{mesh_id}' missing 'triangles' array", mesh_id)
+            return
+
+        material_slots = mesh_data.get("material_slots", [])
+        num_slots = len(material_slots) if isinstance(material_slots, list) else 1
+
+        for t_idx, tri in enumerate(triangles):
+            indices = tri.get("vertex_indices")
+            if not isinstance(indices, list) or len(indices) != 3:
+                result.add_error(
+                    "MESH_INVALID_TRIANGLE_INDICES",
+                    f"Mesh '{mesh_id}' triangle {t_idx} must have exactly 3 vertex indices",
+                    mesh_id,
+                )
+                continue
+
+            for idx in indices:
+                if not isinstance(idx, int) or idx < 0 or idx >= vertex_count:
+                    result.add_error(
+                        "MESH_INDEX_OUT_OF_BOUNDS",
+                        f"Mesh '{mesh_id}' triangle {t_idx} references out-of-bounds vertex index {idx} (vertex count: {vertex_count})",
+                        mesh_id,
+                    )
+                    break
+
+            # Normals
+            normals = tri.get("normals")
+            if isinstance(normals, list) and len(normals) == 3:
+                for n_idx, n in enumerate(normals):
+                    if not isinstance(n, list) or len(n) != 3 or not all(isinstance(c, (int, float)) and math.isfinite(c) for c in n):
+                        result.add_error(
+                            "MESH_NON_FINITE_NORMAL",
+                            f"Mesh '{mesh_id}' triangle {t_idx} normal {n_idx} is non-finite: {n}",
+                            mesh_id,
+                        )
+                        break
+
+            # UVs
+            uvs = tri.get("uvs")
+            if isinstance(uvs, list) and len(uvs) == 3:
+                for u_idx, uv in enumerate(uvs):
+                    if not isinstance(uv, list) or len(uv) != 2 or not all(isinstance(c, (int, float)) and math.isfinite(c) for c in uv):
+                        result.add_error(
+                            "MESH_NON_FINITE_UV",
+                            f"Mesh '{mesh_id}' triangle {t_idx} UV {u_idx} is non-finite: {uv}",
+                            mesh_id,
+                        )
+                        break
+
+            # Material slot index
+            slot_idx = tri.get("material_slot_index", 0)
+            if not isinstance(slot_idx, int) or slot_idx < 0 or (num_slots > 0 and slot_idx >= num_slots):
+                result.add_error(
+                    "MESH_INVALID_MATERIAL_SLOT_INDEX",
+                    f"Mesh '{mesh_id}' triangle {t_idx} references invalid material slot index {slot_idx} (slot count: {num_slots})",
+                    mesh_id,
+                )
+
+    @classmethod
     def validate_package(
         cls,
         manifest: Dict[str, Any],
         scene: Dict[str, Any],
         objects: Dict[str, Any],
+        meshes: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> ValidationResult:
-        """Runs full validation suite on package components."""
+        """Runs full validation suite on package components including meshes."""
         result = ValidationResult()
         cls.validate_manifest(manifest, result)
         cls.validate_scene(scene, result)
         cls.validate_objects(objects, result)
+
+        if meshes:
+            for mesh_id, mesh_data in meshes.items():
+                cls.validate_mesh(mesh_data, result)
+
+            # Check that referenced meshes in objects actually exist in meshes
+            mesh_set = set(meshes.keys())
+            for obj in objects.get("objects", []):
+                mesh_ref = obj.get("mesh_reference")
+                if mesh_ref:
+                    ref_id = mesh_ref.get("mesh_id")
+                    if ref_id and ref_id not in mesh_set:
+                        result.add_error(
+                            "OBJECT_BROKEN_MESH_REF",
+                            f"Object '{obj.get('name')}' references non-existent mesh '{ref_id}'",
+                            obj.get("id"),
+                        )
+
         return result
+

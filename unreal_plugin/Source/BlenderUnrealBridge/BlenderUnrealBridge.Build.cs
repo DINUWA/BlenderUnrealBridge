@@ -31,6 +31,8 @@ public class BlenderUnrealBridge : ModuleRules
 				"Projects",
 				"Json",
 				"JsonUtilities",
+				"MeshDescription",
+				"StaticMeshDescription",
 			}
 		);
 

@@ -24,6 +24,26 @@ bool FBridgePackageValidator::IsValidBridgeId(const FString& Id)
 	return true;
 }
 
+bool FBridgePackageValidator::IsValidMeshId(const FString& Id)
+{
+	// Expected format: "mesh_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("mesh_")) || Id.Len() < 13)
+	{
+		return false;
+	}
+
+	for (int32 i = 5; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool FBridgePackageValidator::ValidatePackage(
 	const FBridgePackageData& PackageData,
 	FBridgeValidationReport& OutReport)
@@ -33,6 +53,7 @@ bool FBridgePackageValidator::ValidatePackage(
 	bValid &= ValidateManifest(PackageData.Manifest, OutReport);
 	bValid &= ValidateScene(PackageData.Scene, OutReport);
 	bValid &= ValidateObjects(PackageData.Objects, OutReport);
+	bValid &= ValidateMeshes(PackageData.Meshes, PackageData.Objects, OutReport);
 
 	return bValid && OutReport.IsValid();
 }
@@ -313,6 +334,135 @@ bool FBridgePackageValidator::ValidateObjects(
 
 			const FString* NextParent = ParentMap.Find(CurrentId);
 			CurrentId = (NextParent && !NextParent->IsEmpty()) ? *NextParent : TEXT("");
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateMesh(
+	const FBridgeMeshData& Mesh,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	if (Mesh.Format != TEXT("BUBRIDGE_MESH"))
+	{
+		OutReport.AddError(
+			TEXT("MESH_INVALID_FORMAT"),
+			FString::Printf(TEXT("Mesh '%s' format must be 'BUBRIDGE_MESH', got '%s'"), *Mesh.MeshId, *Mesh.Format),
+			Mesh.MeshId);
+		bValid = false;
+	}
+
+	if (!IsValidMeshId(Mesh.MeshId))
+	{
+		OutReport.AddError(
+			TEXT("MESH_INVALID_ID_FORMAT"),
+			FString::Printf(TEXT("Mesh '%s' has malformed Bridge Mesh ID '%s' (must be 'mesh_<hex>')"), *Mesh.Name, *Mesh.MeshId),
+			Mesh.MeshId);
+		bValid = false;
+	}
+
+	// Vertices check
+	int32 VertCount = Mesh.Vertices.Num();
+	for (int32 i = 0; i < VertCount; ++i)
+	{
+		const FVector3f& V = Mesh.Vertices[i];
+		if (!FMath::IsFinite(V.X) || !FMath::IsFinite(V.Y) || !FMath::IsFinite(V.Z))
+		{
+			OutReport.AddError(
+				TEXT("MESH_NON_FINITE_COORDINATE"),
+				FString::Printf(TEXT("Mesh '%s' vertex %d contains non-finite coordinates"), *Mesh.MeshId, i),
+				Mesh.MeshId);
+			bValid = false;
+			break;
+		}
+	}
+
+	// Triangles check
+	int32 SlotCount = Mesh.MaterialSlots.Num();
+	for (int32 t = 0; t < Mesh.Triangles.Num(); ++t)
+	{
+		const FBridgeMeshTriangle& Tri = Mesh.Triangles[t];
+		for (int32 Corner = 0; Corner < 3; ++Corner)
+		{
+			int32 VIdx = Tri.VertexIndices[Corner];
+			if (VIdx < 0 || VIdx >= VertCount)
+			{
+				OutReport.AddError(
+					TEXT("MESH_INDEX_OUT_OF_BOUNDS"),
+					FString::Printf(TEXT("Mesh '%s' triangle %d references out-of-bounds vertex index %d (vertex count: %d)"),
+						*Mesh.MeshId, t, VIdx, VertCount),
+					Mesh.MeshId);
+				bValid = false;
+				break;
+			}
+
+			const FVector3f& N = Tri.Normals[Corner];
+			if (!FMath::IsFinite(N.X) || !FMath::IsFinite(N.Y) || !FMath::IsFinite(N.Z))
+			{
+				OutReport.AddError(
+					TEXT("MESH_NON_FINITE_NORMAL"),
+					FString::Printf(TEXT("Mesh '%s' triangle %d corner %d normal is non-finite"), *Mesh.MeshId, t, Corner),
+					Mesh.MeshId);
+				bValid = false;
+				break;
+			}
+
+			const FVector2f& UV = Tri.UVs[Corner];
+			if (!FMath::IsFinite(UV.X) || !FMath::IsFinite(UV.Y))
+			{
+				OutReport.AddError(
+					TEXT("MESH_NON_FINITE_UV"),
+					FString::Printf(TEXT("Mesh '%s' triangle %d corner %d UV is non-finite"), *Mesh.MeshId, t, Corner),
+					Mesh.MeshId);
+				bValid = false;
+				break;
+			}
+		}
+
+		if (SlotCount > 0 && (Tri.MaterialSlotIndex < 0 || Tri.MaterialSlotIndex >= SlotCount))
+		{
+			OutReport.AddError(
+				TEXT("MESH_INVALID_MATERIAL_SLOT_INDEX"),
+				FString::Printf(TEXT("Mesh '%s' triangle %d references invalid material slot %d (slot count: %d)"),
+					*Mesh.MeshId, t, Tri.MaterialSlotIndex, SlotCount),
+				Mesh.MeshId);
+			bValid = false;
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateMeshes(
+	const TMap<FString, FBridgeMeshData>& Meshes,
+	const TArray<FBridgeObject>& Objects,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	// Validate individual meshes
+	for (const auto& Pair : Meshes)
+	{
+		bValid &= ValidateMesh(Pair.Value, OutReport);
+	}
+
+	// Validate object mesh references
+	for (const FBridgeObject& Obj : Objects)
+	{
+		if (Obj.Type == TEXT("STATIC_MESH") && Obj.MeshReference.IsValid())
+		{
+			const FString& MeshId = Obj.MeshReference.MeshId;
+			if (!Meshes.Contains(MeshId))
+			{
+				OutReport.AddError(
+					TEXT("OBJECT_BROKEN_MESH_REF"),
+					FString::Printf(TEXT("Object '%s' references non-existent mesh '%s'"), *Obj.Name, *MeshId),
+					Obj.Id);
+				bValid = false;
+			}
 		}
 	}
 

@@ -18,7 +18,7 @@ public:
 	static const int32 SupportedMinorVersion;
 
 	/**
-	 * Validates the parsed package data model in its entirety.
+	 * Validates the parsed package data model in its entirety, including meshes.
 	 */
 	static bool ValidatePackage(
 		const FBridgePackageData& PackageData,
@@ -45,6 +45,21 @@ public:
 		const TArray<FBridgeObject>& Objects,
 		FBridgeValidationReport& OutReport);
 
-private:
+	/**
+	 * Validates a single canonical mesh payload.
+	 */
+	static bool ValidateMesh(
+		const FBridgeMeshData& Mesh,
+		FBridgeValidationReport& OutReport);
+
+	/**
+	 * Validates all loaded meshes and verifies referential integrity from objects.
+	 */
+	static bool ValidateMeshes(
+		const TMap<FString, FBridgeMeshData>& Meshes,
+		const TArray<FBridgeObject>& Objects,
+		FBridgeValidationReport& OutReport);
+
 	static bool IsValidBridgeId(const FString& Id);
+	static bool IsValidMeshId(const FString& Id);
 };

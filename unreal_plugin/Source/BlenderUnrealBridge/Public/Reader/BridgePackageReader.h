@@ -11,8 +11,8 @@
  *
  * Responsibilities:
  * 1. Locate and inspect .bubridge package structure
- * 2. Parse manifest.json, scene.json, objects.json using Unreal JSON APIs
- * 3. Validate package schema, referential integrity, and transforms
+ * 2. Parse manifest.json, scene.json, objects.json, and meshes/*.json using Unreal JSON APIs
+ * 3. Validate package schema, referential integrity, meshes, and transforms
  * 4. Construct complete FBridgePackageData model
  * 5. Provide authoritative Unreal-native transforms for all objects
  */
@@ -74,5 +74,16 @@ private:
 		const FString& ObjectId,
 		const FString& ObjectName,
 		FBridgeCanonicalTransform& OutTransform,
+		FBridgeValidationReport& OutReport);
+
+	static bool ParseMesh(
+		const TSharedPtr<class FJsonObject>& JsonObject,
+		FBridgeMeshData& OutMesh,
+		FBridgeValidationReport& OutReport);
+
+	static bool LoadMeshes(
+		const FString& PackageDirectory,
+		const TArray<FBridgeObject>& Objects,
+		TMap<FString, FBridgeMeshData>& OutMeshes,
 		FBridgeValidationReport& OutReport);
 };

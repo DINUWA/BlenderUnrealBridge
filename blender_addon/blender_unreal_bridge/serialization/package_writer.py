@@ -21,6 +21,7 @@ import uuid
 import bpy
 
 from ..collectors.scene_collector import collect_scene
+from ..geometry.mesh_extractor import extract_mesh_data
 from ..version import FORMAT_NAME, FORMAT_VERSION, VERSION_STRING
 from .json_serializer import serialize_json
 from .package_validator import PackageValidator, ValidationResult
@@ -99,8 +100,9 @@ def build_package_data(
     # Sort collections deterministically by ID
     collections_list.sort(key=lambda c: c["id"])
 
-    # 3. Build Objects List
+    # 3. Build Objects List and Mesh Payloads
     objects_list: List[Dict[str, Any]] = []
+    meshes_dict: Dict[str, Dict[str, Any]] = {}
 
     for meta in inspection.objects:
         obj = scene.objects.get(meta.name)
@@ -130,6 +132,24 @@ def build_package_data(
             }
         )
 
+        mesh_ref = None
+        mat_slots = []
+        if meta.object_type == "MESH" and obj is not None and getattr(obj, "data", None):
+            try:
+                mesh_data = extract_mesh_data(obj)
+                mesh_id = mesh_data["mesh_id"]
+                if mesh_id not in meshes_dict:
+                    meshes_dict[mesh_id] = mesh_data
+
+                mesh_ref = {
+                    "mesh_id": mesh_id,
+                    "file": f"meshes/{mesh_id}.json",
+                    "submesh_index": 0,
+                }
+                mat_slots = mesh_data.get("material_slots", [])
+            except Exception as exc:
+                inspection.errors.append(f"Failed to extract mesh geometry for '{meta.name}': {exc}")
+
         obj_data = {
             "id": meta.bubridge_id,
             "name": meta.name,
@@ -138,8 +158,8 @@ def build_package_data(
             "collection_id": col_id,
             "parent_id": meta.parent_id,
             "transform": transform_dict,
-            "mesh_reference": None,  # Reserved for Milestone 5
-            "material_slots": [],    # Reserved for Milestone 6
+            "mesh_reference": mesh_ref,
+            "material_slots": mat_slots,
         }
         objects_list.append(obj_data)
 
@@ -193,7 +213,7 @@ def build_package_data(
         },
         "content_summary": {
             "object_count": len(objects_list),
-            "mesh_count": 0,
+            "mesh_count": len(meshes_dict),
             "material_count": 0,
             "texture_count": 0,
         },
@@ -202,7 +222,7 @@ def build_package_data(
     objects_dict = {"objects": objects_list}
 
     # 6. Run validation
-    validation_result = PackageValidator.validate_package(manifest_dict, scene_dict, objects_dict)
+    validation_result = PackageValidator.validate_package(manifest_dict, scene_dict, objects_dict, meshes=meshes_dict)
 
     # Transfer inspection warnings/errors into the validation result
     for w in inspection.warnings:
@@ -214,6 +234,7 @@ def build_package_data(
         "manifest": manifest_dict,
         "scene": scene_dict,
         "objects": objects_dict,
+        "meshes": meshes_dict,
         "validation_result": validation_result,
         "timestamp": timestamp,
     }
@@ -279,8 +300,13 @@ def write_bridge_package(
         report_content = serialize_json(report_data)
         (metadata_dir / "report.json").write_text(report_content, encoding="utf-8")
 
-        # 5. Create payload placeholder directories conforming to DATA_PROTOCOL.md §2
-        (stage_dir / "meshes").mkdir(exist_ok=True)
+        # 5. Create payload directories and write mesh assets conforming to DATA_PROTOCOL.md §2
+        meshes_dir = stage_dir / "meshes"
+        meshes_dir.mkdir(exist_ok=True)
+        for mesh_id, mesh_data in package_data.get("meshes", {}).items():
+            mesh_content = serialize_json(mesh_data)
+            (meshes_dir / f"{mesh_id}.json").write_text(mesh_content, encoding="utf-8")
+
         (stage_dir / "textures").mkdir(exist_ok=True)
 
         # 6. Finalize: Atomic move/replace

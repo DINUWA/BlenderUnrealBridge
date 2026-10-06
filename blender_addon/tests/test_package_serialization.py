@@ -165,7 +165,8 @@ class TestManifestSerialization(unittest.TestCase):
         # Content Summary
         summary = data["content_summary"]
         self.assertEqual(summary["object_count"], 1)
-        self.assertEqual(summary["mesh_count"], 0)
+        self.assertEqual(summary["mesh_count"], 1)
+
 
 
 class TestSceneAndCollectionSerialization(unittest.TestCase):

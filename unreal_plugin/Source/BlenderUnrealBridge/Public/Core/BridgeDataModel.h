@@ -104,6 +104,73 @@ struct BLENDERUNREALBRIDGE_API FBridgeCanonicalTransform
 };
 
 /**
+ * Mesh reference on an object node.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMeshReference
+{
+	FString MeshId;
+	FString File;
+	int32 SubmeshIndex = 0;
+
+	bool IsValid() const
+	{
+		return !MeshId.IsEmpty();
+	}
+};
+
+/**
+ * Material slot binding.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMaterialSlot
+{
+	int32 SlotIndex = 0;
+	FString SlotName;
+	FString MaterialId;
+};
+
+/**
+ * Single triangle in canonical mesh representation.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMeshTriangle
+{
+	int32 VertexIndices[3] = { 0, 0, 0 };
+	FVector3f Normals[3] = { FVector3f(0.f, 0.f, 1.f), FVector3f(0.f, 0.f, 1.f), FVector3f(0.f, 0.f, 1.f) };
+	FVector2f UVs[3] = { FVector2f::ZeroVector, FVector2f::ZeroVector, FVector2f::ZeroVector };
+	int32 MaterialSlotIndex = 0;
+};
+
+/**
+ * Bounding box for canonical mesh.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMeshBounds
+{
+	FVector3f Min = FVector3f::ZeroVector;
+	FVector3f Max = FVector3f::ZeroVector;
+};
+
+/**
+ * Complete canonical mesh asset payload loaded from meshes/<mesh_id>.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMeshData
+{
+	FString Format;
+	FString Version;
+	FString MeshId;
+	FString Name;
+
+	int32 VertexCount = 0;
+	int32 TriangleCount = 0;
+	int32 UVLayerCount = 0;
+	int32 MaterialSlotCount = 0;
+
+	FBridgeMeshBounds Bounds;
+
+	TArray<FVector3f> Vertices;
+	TArray<FBridgeMeshTriangle> Triangles;
+	TArray<FBridgeMaterialSlot> MaterialSlots;
+};
+
+/**
  * Object node from objects.json.
  */
 struct BLENDERUNREALBRIDGE_API FBridgeObject
@@ -116,10 +183,17 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 	FString ParentId;
 
 	FBridgeCanonicalTransform Transform;
+	FBridgeMeshReference MeshReference;
+	TArray<FBridgeMaterialSlot> MaterialSlots;
 
 	bool HasParent() const
 	{
 		return !ParentId.IsEmpty();
+	}
+
+	bool HasMesh() const
+	{
+		return Type == TEXT("STATIC_MESH") && MeshReference.IsValid();
 	}
 };
 
@@ -132,6 +206,7 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	FBridgeManifest Manifest;
 	FBridgeScene Scene;
 	TArray<FBridgeObject> Objects;
+	TMap<FString, FBridgeMeshData> Meshes;
 
 	/** Fast lookup index mapping Bridge ID -> Object index in Objects array */
 	TMap<FString, int32> IdToIndexMap;
@@ -146,12 +221,20 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 		return nullptr;
 	}
 
+	const FBridgeMeshData* FindMeshById(const FString& InMeshId) const
+	{
+		return Meshes.Find(InMeshId);
+	}
+
 	void RebuildIdMap()
 	{
 		IdToIndexMap.Empty(Objects.Num());
 		for (int32 Idx = 0; Idx < Objects.Num(); ++Idx)
 		{
-			IdToIndexMap.Add(Objects[Idx].Id, Idx);
+			if (!Objects[Idx].Id.IsEmpty())
+			{
+				IdToIndexMap.Add(Objects[Idx].Id, Idx);
+			}
 		}
 	}
 };
