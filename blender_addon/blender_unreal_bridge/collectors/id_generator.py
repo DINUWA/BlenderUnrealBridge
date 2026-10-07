@@ -219,3 +219,90 @@ def has_texture_id(image) -> bool:
     return BUBRIDGE_ID_KEY in image
 
 
+# ---------------------------------------------------------------------------
+# Skeletons, Bones, and Animations (Milestone 9)
+# ---------------------------------------------------------------------------
+
+def _generate_skeleton_id() -> str:
+    """Generate a new unique Bridge Skeleton ID string in the format 'skel_XXXXXXXX'."""
+    return "skel_" + uuid.uuid4().hex[:8]
+
+
+def ensure_skeleton_id(armature) -> str:
+    """
+    Return the existing bubridge skeleton ID for a Blender Armature datablock or object,
+    or generate and assign a new one if none exists.
+    """
+    data = getattr(armature, "data", armature)
+    existing = data.get("bubridge_skeleton_id") or data.get(BUBRIDGE_ID_KEY)
+    if existing and str(existing).startswith("skel_"):
+        return str(existing)
+
+    new_id = _generate_skeleton_id()
+    data["bubridge_skeleton_id"] = new_id
+    return new_id
+
+
+def get_skeleton_id(armature) -> str | None:
+    data = getattr(armature, "data", armature)
+    val = data.get("bubridge_skeleton_id") or data.get(BUBRIDGE_ID_KEY)
+    if val and str(val).startswith("skel_"):
+        return str(val)
+    return None
+
+
+def _generate_bone_id() -> str:
+    """Generate a new unique Bridge Bone ID string in the format 'bone_XXXXXXXX'."""
+    return "bone_" + uuid.uuid4().hex[:8]
+
+
+def ensure_bone_id(bone) -> str:
+    """
+    Return the existing bubridge bone ID for a Blender Bone, EditBone, or PoseBone,
+    or generate and assign a new one if none exists.
+    """
+    target = getattr(bone, "bone", bone)
+    existing = target.get("bubridge_bone_id") or target.get(BUBRIDGE_ID_KEY)
+    if existing and str(existing).startswith("bone_"):
+        return str(existing)
+
+    new_id = _generate_bone_id()
+    target["bubridge_bone_id"] = new_id
+    return new_id
+
+
+def get_bone_id(bone) -> str | None:
+    target = getattr(bone, "bone", bone)
+    val = target.get("bubridge_bone_id") or target.get(BUBRIDGE_ID_KEY)
+    if val and str(val).startswith("bone_"):
+        return str(val)
+    return None
+
+
+def _generate_animation_id() -> str:
+    """Generate a new unique Bridge Animation ID string in the format 'anim_XXXXXXXX'."""
+    return "anim_" + uuid.uuid4().hex[:8]
+
+
+def ensure_animation_id(action) -> str:
+    """
+    Return the existing bubridge animation ID for a Blender Action,
+    or generate and assign a new one if none exists.
+    """
+    existing = action.get("bubridge_animation_id") or action.get(BUBRIDGE_ID_KEY)
+    if existing and str(existing).startswith("anim_"):
+        return str(existing)
+
+    new_id = _generate_animation_id()
+    action["bubridge_animation_id"] = new_id
+    return new_id
+
+
+def get_animation_id(action) -> str | None:
+    val = action.get("bubridge_animation_id") or action.get(BUBRIDGE_ID_KEY)
+    if val and str(val).startswith("anim_"):
+        return str(val)
+    return None
+
+
+

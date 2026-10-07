@@ -93,8 +93,36 @@ public:
 		const FString& PackageDirectory,
 		FBridgeValidationReport& OutReport);
 
+	/**
+	 * Validates a single canonical skeleton entry.
+	 */
+	static bool ValidateSkeleton(
+		const FBridgeSkeletonData& Skeleton,
+		FBridgeValidationReport& OutReport);
+
+	/**
+	 * Validates a single canonical animation clip entry.
+	 */
+	static bool ValidateAnimationClip(
+		const FBridgeAnimationClip& Clip,
+		const TMap<FString, FBridgeSkeletonData>& Skeletons,
+		FBridgeValidationReport& OutReport);
+
+	/**
+	 * Validates all loaded animations and skeletons, and verifies referential integrity with meshes and objects.
+	 */
+	static bool ValidateAnimations(
+		const TMap<FString, FBridgeSkeletonData>& Skeletons,
+		const TMap<FString, FBridgeAnimationClip>& Animations,
+		const TMap<FString, FBridgeMeshData>& Meshes,
+		const TArray<FBridgeObject>& Objects,
+		FBridgeValidationReport& OutReport);
+
 	static bool IsValidBridgeId(const FString& Id);
 	static bool IsValidMeshId(const FString& Id);
 	static bool IsValidMaterialId(const FString& Id);
 	static bool IsValidTextureId(const FString& Id);
+	static bool IsValidSkeletonId(const FString& Id);
+	static bool IsValidBoneId(const FString& Id);
+	static bool IsValidAnimationId(const FString& Id);
 };

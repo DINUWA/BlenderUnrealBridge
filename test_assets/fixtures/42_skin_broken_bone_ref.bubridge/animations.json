@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_ANIMATIONS",
+  "version": "0.1.0",
+  "skeletons": [
+    {
+      "id": "skel_00000001",
+      "name": "Armature",
+      "bones": [
+        {
+          "id": "bone_00000001",
+          "name": "Root",
+          "parent_id": null,
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_quaternion": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_mode": "QUATERNION",
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "has_negative_scale": false,
+            "origin_offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "id": "bone_00000002",
+          "name": "Spine",
+          "parent_id": "bone_00000001",
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              50.0
+            ],
+            "rotation_quaternion": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_mode": "QUATERNION",
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "has_negative_scale": false,
+            "origin_offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "id": "anim_00000001",
+      "name": "Idle",
+      "skeleton_id": "skel_00000001",
+      "frame_rate": 24.0,
+      "frame_range": [
+        0.0,
+        10.0
+      ],
+      "duration": 0.4167,
+      "tracks": [
+        {
+          "bone_id": "bone_00000001",
+          "channels": {
+            "location": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0
+                ]
+              }
+            ],
+            "rotation": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              }
+            ],
+            "scale": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "bone_id": "bone_00000002",
+          "channels": {
+            "location": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  0.0,
+                  0.0,
+                  50.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  0.0,
+                  0.0,
+                  55.0
+                ]
+              }
+            ],
+            "rotation": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              }
+            ],
+            "scale": [
+              {
+                "frame": 0.0,
+                "time": 0.0,
+                "value": [
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              },
+              {
+                "frame": 10.0,
+                "time": 0.4167,
+                "value": [
+                  1.0,
+                  1.0,
+                  1.0
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

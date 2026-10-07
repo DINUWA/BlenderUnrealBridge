@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_ANIMATIONS",
+  "version": "0.1.0",
+  "skeletons": [
+    {
+      "id": "invalid_skel_id",
+      "name": "BadArmature",
+      "bones": []
+    }
+  ],
+  "animations": []
+}

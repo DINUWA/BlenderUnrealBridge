@@ -1,0 +1,160 @@
+{
+  "format": "BUBRIDGE_MESH",
+  "version": "0.1.0",
+  "mesh_id": "mesh_00000003",
+  "name": "SkinnedMesh",
+  "vertex_count": 4,
+  "triangle_count": 2,
+  "uv_layer_count": 1,
+  "material_slot_count": 1,
+  "bounds": {
+    "min": [
+      -50.0,
+      -50.0,
+      0.0
+    ],
+    "max": [
+      50.0,
+      50.0,
+      100.0
+    ]
+  },
+  "vertices": [
+    [
+      -50.0,
+      -50.0,
+      0.0
+    ],
+    [
+      50.0,
+      -50.0,
+      0.0
+    ],
+    [
+      50.0,
+      50.0,
+      100.0
+    ],
+    [
+      -50.0,
+      50.0,
+      100.0
+    ]
+  ],
+  "triangles": [
+    {
+      "vertex_indices": [
+        0,
+        1,
+        2
+      ],
+      "normals": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "uvs": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0
+        ]
+      ],
+      "material_slot_index": 0
+    },
+    {
+      "vertex_indices": [
+        0,
+        2,
+        3
+      ],
+      "normals": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "uvs": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0
+        ]
+      ],
+      "material_slot_index": 0
+    }
+  ],
+  "material_slots": [
+    {
+      "slot_index": 0,
+      "slot_name": "M_Default",
+      "material_id": null
+    }
+  ],
+  "skinning": {
+    "skeleton_id": "skel_00000001",
+    "influences": [
+      [
+        {
+          "bone_id": "bone_00000001",
+          "weight": 1.0
+        }
+      ],
+      [
+        {
+          "bone_id": "bone_00000001",
+          "weight": 1.0
+        }
+      ],
+      [
+        {
+          "bone_id": "bone_00000002",
+          "weight": 1.0
+        }
+      ],
+      [
+        {
+          "bone_id": "bone_00000002",
+          "weight": 1.0
+        }
+      ]
+    ]
+  }
+}

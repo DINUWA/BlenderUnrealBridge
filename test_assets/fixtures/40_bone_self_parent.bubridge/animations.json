@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_ANIMATIONS",
+  "version": "0.1.0",
+  "skeletons": [
+    {
+      "id": "skel_00000002",
+      "name": "SelfParentArmature",
+      "bones": [
+        {
+          "id": "bone_00000003",
+          "name": "SelfBone",
+          "parent_id": "bone_00000003",
+          "transform": {
+            "location": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_quaternion": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "rotation_euler": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_mode": "QUATERNION",
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "has_negative_scale": false,
+            "origin_offset": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "animations": []
+}

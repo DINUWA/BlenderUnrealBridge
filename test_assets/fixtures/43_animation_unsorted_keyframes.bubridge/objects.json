@@ -1,0 +1,45 @@
+{
+  "objects": [
+    {
+      "id": "obj_00000048",
+      "name": "UnsortedAnimArmatureObj",
+      "type": "ARMATURE",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": [],
+      "skeleton_id": "skel_00000001"
+    }
+  ]
+}

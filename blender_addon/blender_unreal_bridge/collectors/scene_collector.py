@@ -26,8 +26,7 @@ import bpy
 from .id_generator import ensure_id, get_id, BUBRIDGE_ID_KEY
 
 # Object types the bridge considers as exportable/relevant at this stage.
-# This set will grow in later milestones (e.g. ARMATURE, LIGHT, CAMERA).
-SUPPORTED_OBJECT_TYPES = frozenset({"MESH", "EMPTY", "CURVE"})
+SUPPORTED_OBJECT_TYPES = frozenset({"MESH", "EMPTY", "CURVE", "ARMATURE"})
 
 
 # ---------------------------------------------------------------------------

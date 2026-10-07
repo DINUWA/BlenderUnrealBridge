@@ -136,7 +136,7 @@ class BridgePackageValidator:
     SUPPORTED_MINOR = 1
 
     @classmethod
-    def validate_package(cls, manifest, scene, objects, meshes=None, materials=None, textures=None, pkg_dir=None):
+    def validate_package(cls, manifest, scene, objects, meshes=None, materials=None, textures=None, pkg_dir=None, animations=None):
         errors = []
         warnings = []
 
@@ -300,9 +300,35 @@ class BridgePackageValidator:
                         errors.append(("MESH_INVALID_MATERIAL_SLOT_INDEX", f"Invalid slot index {slot_idx}"))
                         break
 
+                # Skinning validation (Milestone 9)
+                skinning = mesh.get("skinning")
+                if skinning is not None:
+                    skel_id = skinning.get("skeleton_id")
+                    if not skel_id or not skel_id.startswith("skel_") or len(skel_id) < 13:
+                        errors.append(("SKIN_INVALID_SKELETON_ID", f"Invalid skeleton ID {skel_id}"))
+                    influences = skinning.get("influences", [])
+                    if len(influences) != vert_count:
+                        errors.append(("SKIN_INVALID_INFLUENCE_COUNT", f"Influence count {len(influences)} != vert count {vert_count}"))
+                    else:
+                        for v_idx, v_infs in enumerate(influences):
+                            seen_b = set()
+                            for inf in v_infs:
+                                b_id = inf.get("bone_id", "")
+                                if not b_id.startswith("bone_") or len(b_id) < 13:
+                                    errors.append(("SKIN_INVALID_BONE_ID", f"Invalid bone ID {b_id}"))
+                                    break
+                                if b_id in seen_b:
+                                    errors.append(("SKIN_DUPLICATE_BONE_INFLUENCE", f"Duplicate bone {b_id}"))
+                                    break
+                                seen_b.add(b_id)
+                                w = inf.get("weight")
+                                if w is None or not isinstance(w, (int, float)) or not math.isfinite(w) or w < 0.0 or w > 1.0:
+                                    errors.append(("SKIN_INVALID_WEIGHT", f"Invalid weight {w}"))
+                                    break
+
             # Object mesh references
             for obj in objects:
-                if obj.get("type") == "STATIC_MESH" and obj.get("mesh_reference"):
+                if obj.get("type") in ("STATIC_MESH", "SKELETAL_MESH") and obj.get("mesh_reference"):
                     ref_id = obj["mesh_reference"].get("mesh_id")
                     if ref_id and ref_id not in meshes:
                         errors.append(("OBJECT_BROKEN_MESH_REF", f"Object references missing mesh {ref_id}"))
@@ -382,11 +408,119 @@ class BridgePackageValidator:
                     if tex_id and tex_id not in tex_set:
                         errors.append(("MATERIAL_BROKEN_TEXTURE_REF", f"Material '{mat_id}' channel '{channel}' references missing texture '{tex_id}'"))
 
+        # Animations validation (Milestone 9)
+        if animations is not None:
+            skeletons = animations.get("skeletons", [])
+            seen_skel_ids = set()
+            skel_bone_map = {}
+            for skel in skeletons:
+                skel_id = skel.get("id", "")
+                if not skel_id.startswith("skel_") or len(skel_id) < 13:
+                    errors.append(("SKELETON_INVALID_ID_FORMAT", f"Invalid skeleton ID {skel_id}"))
+                if skel_id in seen_skel_ids:
+                    errors.append(("SKELETON_DUPLICATE_ID", f"Duplicate skeleton ID {skel_id}"))
+                seen_skel_ids.add(skel_id)
+
+                bones = skel.get("bones", [])
+                seen_bone_ids = set()
+                seen_bone_names = set()
+                bone_parent_map = {}
+                for b in bones:
+                    b_id = b.get("id", "")
+                    b_name = b.get("name", "")
+                    if not b_id.startswith("bone_") or len(b_id) < 13:
+                        errors.append(("BONE_INVALID_ID_FORMAT", f"Invalid bone ID {b_id}"))
+                    if b_id in seen_bone_ids:
+                        errors.append(("BONE_DUPLICATE_ID", f"Duplicate bone ID {b_id}"))
+                    seen_bone_ids.add(b_id)
+                    if b_name in seen_bone_names:
+                        errors.append(("BONE_DUPLICATE_NAME", f"Duplicate bone name {b_name}"))
+                    seen_bone_names.add(b_name)
+                    bone_parent_map[b_id] = b.get("parent_id")
+
+                skel_bone_map[skel_id] = seen_bone_ids
+
+                # Bone parent refs
+                for b_id, p_id in bone_parent_map.items():
+                    if p_id:
+                        if p_id == b_id:
+                            errors.append(("BONE_SELF_PARENT", f"Bone {b_id} references itself"))
+                        elif p_id not in seen_bone_ids:
+                            errors.append(("BONE_BROKEN_PARENT_REF", f"Bone {b_id} parent {p_id} not found"))
+
+                # Bone cycle
+                for start_id in seen_bone_ids:
+                    visited = set()
+                    curr = start_id
+                    while curr:
+                        if curr in visited:
+                            errors.append(("BONE_HIERARCHY_CYCLE", f"Bone cycle involving {curr}"))
+                            break
+                        visited.add(curr)
+                        curr = bone_parent_map.get(curr)
+
+            # Animation clips
+            for clip in animations.get("animations", []):
+                anim_id = clip.get("id", "")
+                if not anim_id.startswith("anim_") or len(anim_id) < 13:
+                    errors.append(("ANIMATION_INVALID_ID_FORMAT", f"Invalid animation ID {anim_id}"))
+                skel_ref = clip.get("skeleton_id")
+                if skel_ref not in seen_skel_ids:
+                    errors.append(("ANIMATION_BROKEN_SKELETON_REF", f"Animation references missing skeleton {skel_ref}"))
+                fr = clip.get("frame_range", [])
+                if not isinstance(fr, (list, tuple)) or len(fr) != 2 or fr[0] > fr[1]:
+                    errors.append(("ANIMATION_INVALID_FRAME_RANGE", f"Invalid frame range {fr}"))
+                fps = clip.get("frame_rate", 0.0)
+                if not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0.0:
+                    errors.append(("ANIMATION_INVALID_FRAME_RATE", f"Invalid frame rate {fps}"))
+                dur = clip.get("duration", 0.0)
+                if not isinstance(dur, (int, float)) or not math.isfinite(dur) or dur < 0.0:
+                    errors.append(("ANIMATION_INVALID_DURATION", f"Invalid duration {dur}"))
+
+                valid_bones = skel_bone_map.get(skel_ref, set())
+                for track in clip.get("tracks", []):
+                    b_id = track.get("bone_id")
+                    if b_id and b_id not in valid_bones:
+                        errors.append(("ANIMATION_BROKEN_BONE_REF", f"Track references missing bone {b_id}"))
+                    channels = track.get("channels", {})
+                    for ch_name in ("location", "rotation", "scale"):
+                        keys = channels.get(ch_name, [])
+                        last_t = -1.0
+                        for k in keys:
+                            t = k.get("time")
+                            if t is None or not math.isfinite(t) or t < last_t:
+                                errors.append(("ANIMATION_UNSORTED_KEYFRAMES", f"Unsorted keyframe in track {b_id}"))
+                                break
+                            last_t = t
+
+            # Cross validation: mesh skinning skeleton ref & bone refs
+            if meshes is not None:
+                for m_id, mesh in meshes.items():
+                    skin = mesh.get("skinning")
+                    if skin:
+                        skel_ref = skin.get("skeleton_id")
+                        if skel_ref not in seen_skel_ids:
+                            errors.append(("SKIN_BROKEN_SKELETON_REF", f"Mesh references missing skeleton {skel_ref}"))
+                        else:
+                            skel_bones = skel_bone_map.get(skel_ref, set())
+                            for v_idx, v_infs in enumerate(skin.get("influences", [])):
+                                for inf in v_infs:
+                                    b_id = inf.get("bone_id")
+                                    if b_id and b_id not in skel_bones:
+                                        errors.append(("SKIN_BROKEN_BONE_REF", f"Mesh references missing bone {b_id}"))
+                                        break
+
+            # Cross validation: object skeleton ref
+            for obj in objects:
+                skel_ref = obj.get("skeleton_id")
+                if skel_ref and skel_ref not in seen_skel_ids:
+                    errors.append(("OBJECT_BROKEN_SKELETON_REF", f"Object references missing skeleton {skel_ref}"))
+
         return errors, warnings
 
 
 class FixtureData:
-    def __init__(self, manifest, scene, objects, meshes, materials, textures=None, pkg_dir=None):
+    def __init__(self, manifest, scene, objects, meshes, materials, textures=None, pkg_dir=None, animations=None):
         self.manifest = manifest
         self.scene = scene
         self.objects = objects
@@ -394,6 +528,7 @@ class FixtureData:
         self.materials = materials
         self.textures = textures or []
         self.pkg_dir = pkg_dir
+        self.animations = animations
 
     def __iter__(self):
         return iter((self.manifest, self.scene, self.objects, self.meshes, self.materials))
@@ -430,7 +565,12 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
             with open(tex_file, "r", encoding="utf-8") as f:
                 tex_data = json.load(f)
                 textures = tex_data.get("textures", [])
-        return FixtureData(manifest, scene, objects_data["objects"], meshes, materials, textures, pkg_dir)
+        animations = None
+        anim_file = pkg_dir / "animations.json"
+        if anim_file.exists():
+            with open(anim_file, "r", encoding="utf-8") as f:
+                animations = json.load(f)
+        return FixtureData(manifest, scene, objects_data["objects"], meshes, materials, textures, pkg_dir, animations)
 
     def test_fixture_01_identity_valid(self):
         m, s, o, meshes, mats = self._load_fixture("01_identity_scene")
@@ -702,6 +842,67 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
             fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
         )
         self.assertTrue(any(code == "COLLECTION_HIERARCHY_CYCLE" for code, _ in errors))
+
+    def test_fixture_37_valid_skeleton_and_animation(self):
+        fix = self._load_fixture("37_valid_skeleton_and_animation")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertIsNotNone(fix.animations)
+        self.assertEqual(len(fix.animations.get("skeletons", [])), 1)
+        self.assertEqual(len(fix.animations.get("animations", [])), 1)
+
+    def test_fixture_38_skinned_mesh_valid(self):
+        fix = self._load_fixture("38_skinned_mesh")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertIn("mesh_00000003", fix.meshes)
+        self.assertIn("skinning", fix.meshes["mesh_00000003"])
+
+    def test_fixture_39_invalid_skeleton_id_format(self):
+        fix = self._load_fixture("39_invalid_skeleton_id_format")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "SKELETON_INVALID_ID_FORMAT" for code, _ in errors))
+
+    def test_fixture_40_bone_self_parent(self):
+        fix = self._load_fixture("40_bone_self_parent")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "BONE_SELF_PARENT" for code, _ in errors))
+
+    def test_fixture_41_bone_hierarchy_cycle(self):
+        fix = self._load_fixture("41_bone_hierarchy_cycle")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "BONE_HIERARCHY_CYCLE" for code, _ in errors))
+
+    def test_fixture_42_skin_broken_bone_ref(self):
+        fix = self._load_fixture("42_skin_broken_bone_ref")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "SKIN_BROKEN_BONE_REF" for code, _ in errors))
+
+    def test_fixture_43_animation_unsorted_keyframes(self):
+        fix = self._load_fixture("43_animation_unsorted_keyframes")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "ANIMATION_UNSORTED_KEYFRAMES" for code, _ in errors))
+
+    def test_fixture_44_object_broken_skeleton_ref(self):
+        fix = self._load_fixture("44_object_broken_skeleton_ref")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir, fix.animations
+        )
+        self.assertTrue(any(code == "OBJECT_BROKEN_SKELETON_REF" for code, _ in errors))
 
 
 class TestMilestone3Integration(unittest.TestCase):
@@ -1246,6 +1447,162 @@ class TestMilestone8HierarchyValidation(unittest.TestCase):
         }]
         errs, _ = BridgePackageValidator.validate_package(self.base_manifest, scene, objects)
         self.assertTrue(any(code == "OBJECT_BROKEN_COLLECTION_REF" for code, _ in errs))
+
+
+class UnrealAnimationBuilder:
+    """Python mirror of FBridgeAnimationBuilder."""
+
+    @staticmethod
+    def build_skeleton_rest_pose(skeleton):
+        out_transforms = {}
+        for bone in skeleton.get("bones", []):
+            b_id = bone["id"]
+            xform = BridgeTransformConverter.to_unreal_local_transform(bone["transform"])
+            p_id = bone.get("parent_id")
+            if not p_id:
+                comp_xform = xform
+            else:
+                p_eval = out_transforms.get(p_id)
+                if p_eval:
+                    comp_xform = xform * p_eval["component_transform"]
+                else:
+                    comp_xform = xform
+            out_transforms[b_id] = {
+                "bone_id": b_id,
+                "local_transform": xform,
+                "component_transform": comp_xform
+            }
+        return out_transforms
+
+    @staticmethod
+    def sample_bone_track(track, time_seconds):
+        channels = track.get("channels", {})
+        loc = UnrealVector(0.0, 0.0, 0.0)
+        loc_keys = channels.get("location", [])
+        if len(loc_keys) == 1:
+            loc = UnrealVector(*loc_keys[0]["value"])
+        elif len(loc_keys) > 1:
+            if time_seconds <= loc_keys[0]["time"]:
+                loc = UnrealVector(*loc_keys[0]["value"])
+            elif time_seconds >= loc_keys[-1]["time"]:
+                loc = UnrealVector(*loc_keys[-1]["value"])
+            else:
+                for i in range(len(loc_keys) - 1):
+                    k0, k1 = loc_keys[i], loc_keys[i + 1]
+                    if k0["time"] <= time_seconds <= k1["time"]:
+                        r = k1["time"] - k0["time"]
+                        alpha = (time_seconds - k0["time"]) / r if r > 1e-6 else 0.0
+                        v0 = UnrealVector(*k0["value"])
+                        v1 = UnrealVector(*k1["value"])
+                        loc = UnrealVector(
+                            v0.x + alpha * (v1.x - v0.x),
+                            v0.y + alpha * (v1.y - v0.y),
+                            v0.z + alpha * (v1.z - v0.z)
+                        )
+                        break
+
+        rot = UnrealQuat(0.0, 0.0, 0.0, 1.0)
+        rot_keys = channels.get("rotation", [])
+        if len(rot_keys) == 1:
+            rot = UnrealQuat(*rot_keys[0]["value"])
+        elif len(rot_keys) > 1:
+            if time_seconds <= rot_keys[0]["time"]:
+                rot = UnrealQuat(*rot_keys[0]["value"])
+            elif time_seconds >= rot_keys[-1]["time"]:
+                rot = UnrealQuat(*rot_keys[-1]["value"])
+            else:
+                for i in range(len(rot_keys) - 1):
+                    k0, k1 = rot_keys[i], rot_keys[i + 1]
+                    if k0["time"] <= time_seconds <= k1["time"]:
+                        rot = UnrealQuat(*k0["value"])
+                        break
+
+        scale = UnrealVector(1.0, 1.0, 1.0)
+        sc_keys = channels.get("scale", [])
+        if len(sc_keys) == 1:
+            scale = UnrealVector(*sc_keys[0]["value"])
+        elif len(sc_keys) > 1:
+            if time_seconds <= sc_keys[0]["time"]:
+                scale = UnrealVector(*sc_keys[0]["value"])
+            elif time_seconds >= sc_keys[-1]["time"]:
+                scale = UnrealVector(*sc_keys[-1]["value"])
+            else:
+                for i in range(len(sc_keys) - 1):
+                    k0, k1 = sc_keys[i], sc_keys[i + 1]
+                    if k0["time"] <= time_seconds <= k1["time"]:
+                        r = k1["time"] - k0["time"]
+                        alpha = (time_seconds - k0["time"]) / r if r > 1e-6 else 0.0
+                        v0 = UnrealVector(*k0["value"])
+                        v1 = UnrealVector(*k1["value"])
+                        scale = UnrealVector(
+                            v0.x + alpha * (v1.x - v0.x),
+                            v0.y + alpha * (v1.y - v0.y),
+                            v0.z + alpha * (v1.z - v0.z)
+                        )
+                        break
+
+        return UnrealTransform(rot, loc, scale)
+
+
+class TestMilestone9AnimationValidation(unittest.TestCase):
+    """Direct validation and evaluation tests for Milestone 9 Animation Pipeline."""
+
+    def test_skeleton_rest_pose_evaluation(self):
+        skeleton = {
+            "id": "skel_00000001",
+            "name": "Armature",
+            "bones": [
+                {
+                    "id": "bone_00000001",
+                    "name": "Root",
+                    "parent_id": None,
+                    "transform": {
+                        "location": [0.0, 0.0, 100.0],
+                        "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+                        "scale": [1.0, 1.0, 1.0]
+                    }
+                },
+                {
+                    "id": "bone_00000002",
+                    "name": "Spine",
+                    "parent_id": "bone_00000001",
+                    "transform": {
+                        "location": [0.0, 0.0, 50.0],
+                        "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+                        "scale": [1.0, 1.0, 1.0]
+                    }
+                }
+            ]
+        }
+        poses = UnrealAnimationBuilder.build_skeleton_rest_pose(skeleton)
+        self.assertIn("bone_00000001", poses)
+        self.assertIn("bone_00000002", poses)
+        root_comp = poses["bone_00000001"]["component_transform"]
+        spine_comp = poses["bone_00000002"]["component_transform"]
+        self.assertEqual(root_comp.translation, UnrealVector(0.0, 0.0, 100.0))
+        self.assertEqual(spine_comp.translation, UnrealVector(0.0, 0.0, 150.0))
+
+    def test_sample_bone_track_interpolation(self):
+        track = {
+            "bone_id": "bone_00000001",
+            "channels": {
+                "location": [
+                    {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0]},
+                    {"frame": 10.0, "time": 1.0, "value": [100.0, 0.0, 0.0]}
+                ],
+                "rotation": [
+                    {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0, 1.0]},
+                    {"frame": 10.0, "time": 1.0, "value": [0.0, 0.0, 0.0, 1.0]}
+                ],
+                "scale": [
+                    {"frame": 0.0, "time": 0.0, "value": [1.0, 1.0, 1.0]},
+                    {"frame": 10.0, "time": 1.0, "value": [2.0, 2.0, 2.0]}
+                ]
+            }
+        }
+        sample_mid = UnrealAnimationBuilder.sample_bone_track(track, 0.5)
+        self.assertEqual(sample_mid.translation, UnrealVector(50.0, 0.0, 0.0))
+        self.assertEqual(sample_mid.scale, UnrealVector(1.5, 1.5, 1.5))
 
 
 if __name__ == "__main__":

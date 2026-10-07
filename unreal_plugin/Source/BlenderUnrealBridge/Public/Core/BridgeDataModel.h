@@ -33,6 +33,8 @@ struct BLENDERUNREALBRIDGE_API FBridgeContentSummary
 	int32 MeshCount = 0;
 	int32 MaterialCount = 0;
 	int32 TextureCount = 0;
+	int32 SkeletonCount = 0;
+	int32 AnimationCount = 0;
 };
 
 /**
@@ -149,6 +151,32 @@ struct BLENDERUNREALBRIDGE_API FBridgeMeshBounds
 };
 
 /**
+ * Bone influence weight for vertex skinning.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeVertexBoneWeight
+{
+	FString BoneId;
+	float Weight = 0.0f;
+};
+
+/**
+ * Skinning influences for a single mesh vertex.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeVertexSkinning
+{
+	TArray<FBridgeVertexBoneWeight> Influences;
+};
+
+/**
+ * Skinning payload for a canonical mesh.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeSkinningData
+{
+	FString SkeletonId;
+	TArray<FBridgeVertexSkinning> Weights; // 1 entry per vertex
+};
+
+/**
  * Complete canonical mesh asset payload loaded from meshes/<mesh_id>.json.
  */
 struct BLENDERUNREALBRIDGE_API FBridgeMeshData
@@ -168,6 +196,100 @@ struct BLENDERUNREALBRIDGE_API FBridgeMeshData
 	TArray<FVector3f> Vertices;
 	TArray<FBridgeMeshTriangle> Triangles;
 	TArray<FBridgeMaterialSlot> MaterialSlots;
+
+	bool bHasSkinning = false;
+	FBridgeSkinningData Skinning;
+};
+
+/**
+ * Bone metadata and rest pose from animations.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeBoneData
+{
+	FString Id;
+	FString Name;
+	FString ParentId; // Empty if root bone
+	FBridgeCanonicalTransform RestTransform;
+};
+
+/**
+ * Canonical Skeleton representation from animations.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeSkeletonData
+{
+	FString Id;
+	FString Name;
+	TArray<FBridgeBoneData> Bones;
+
+	const FBridgeBoneData* FindBoneById(const FString& InBoneId) const
+	{
+		for (const FBridgeBoneData& Bone : Bones)
+		{
+			if (Bone.Id == InBoneId)
+			{
+				return &Bone;
+			}
+		}
+		return nullptr;
+	}
+};
+
+/**
+ * Vector3 keyframe (for location or scale) from animations.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeVectorKeyframe
+{
+	float Frame = 0.0f;
+	float Time = 0.0f;
+	FVector Value = FVector::ZeroVector;
+};
+
+/**
+ * Quaternion keyframe (for rotation) from animations.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeQuatKeyframe
+{
+	float Frame = 0.0f;
+	float Time = 0.0f;
+	FQuat Value = FQuat::Identity;
+};
+
+/**
+ * Per-bone animation track from animations.json.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeBoneAnimationTrack
+{
+	FString BoneId;
+	TArray<FBridgeVectorKeyframe> LocationKeys;
+	TArray<FBridgeQuatKeyframe> RotationKeys;
+	TArray<FBridgeVectorKeyframe> ScaleKeys;
+};
+
+/**
+ * Canonical Animation Clip from animations.json conforming to BUBRIDGE_ANIMATIONS v0.1.0.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeAnimationClip
+{
+	FString Id;
+	FString Name;
+	FString SkeletonId;
+	float FrameRate = 24.0f;
+	float StartFrame = 0.0f;
+	float EndFrame = 0.0f;
+	float Duration = 0.0f;
+	TArray<FBridgeBoneAnimationTrack> Tracks;
+
+	const FBridgeBoneAnimationTrack* FindTrackForBone(const FString& InBoneId) const
+	{
+		for (const FBridgeBoneAnimationTrack& Track : Tracks)
+		{
+			if (Track.BoneId == InBoneId)
+			{
+				return &Track;
+			}
+		}
+		return nullptr;
+	}
 };
 
 /**
@@ -186,6 +308,7 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 	FBridgeCanonicalTransform Transform;
 	FBridgeMeshReference MeshReference;
 	TArray<FBridgeMaterialSlot> MaterialSlots;
+	FString SkeletonId;
 
 	bool HasParent() const
 	{
@@ -194,7 +317,12 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 
 	bool HasMesh() const
 	{
-		return Type == TEXT("STATIC_MESH") && MeshReference.IsValid();
+		return (Type == TEXT("STATIC_MESH") || Type == TEXT("SKELETAL_MESH")) && MeshReference.IsValid();
+	}
+
+	bool HasSkeleton() const
+	{
+		return !SkeletonId.IsEmpty();
 	}
 };
 
@@ -251,6 +379,8 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	TMap<FString, FBridgeMeshData> Meshes;
 	TMap<FString, FBridgeMaterialData> Materials;
 	TMap<FString, FBridgeTextureData> Textures;
+	TMap<FString, FBridgeSkeletonData> Skeletons;
+	TMap<FString, FBridgeAnimationClip> Animations;
 
 	/** Fast lookup index mapping Bridge ID -> Object index in Objects array */
 	TMap<FString, int32> IdToIndexMap;
@@ -278,6 +408,16 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	const FBridgeTextureData* FindTextureById(const FString& InTextureId) const
 	{
 		return Textures.Find(InTextureId);
+	}
+
+	const FBridgeSkeletonData* FindSkeletonById(const FString& InSkeletonId) const
+	{
+		return Skeletons.Find(InSkeletonId);
+	}
+
+	const FBridgeAnimationClip* FindAnimationById(const FString& InAnimationId) const
+	{
+		return Animations.Find(InAnimationId);
 	}
 
 	void RebuildIdMap()

@@ -98,6 +98,9 @@ ID_PATTERN = re.compile(r"^obj_[0-9a-fA-F]{8,}$")
 MESH_ID_PATTERN = re.compile(r"^mesh_[0-9a-fA-F]{8,}$")
 MATERIAL_ID_PATTERN = re.compile(r"^mat_[0-9a-fA-F]{8,}$")
 TEXTURE_ID_PATTERN = re.compile(r"^tex_[0-9a-fA-F]{8,}$")
+SKELETON_ID_PATTERN = re.compile(r"^skel_[0-9a-fA-F]{8,}$")
+BONE_ID_PATTERN = re.compile(r"^bone_[0-9a-fA-F]{8,}$")
+ANIMATION_ID_PATTERN = re.compile(r"^anim_[0-9a-fA-F]{8,}$")
 
 
 class PackageValidator:
@@ -431,6 +434,44 @@ class PackageValidator:
                     mesh_id,
                 )
 
+        # Skinning (Milestone 9)
+        skinning = mesh_data.get("skinning")
+        if skinning is not None:
+            if not isinstance(skinning, dict):
+                result.add_error("SKIN_INVALID_FORMAT", f"Mesh '{mesh_id}' skinning must be a dictionary", mesh_id)
+            else:
+                skel_id = skinning.get("skeleton_id")
+                if not skel_id or not SKELETON_ID_PATTERN.match(skel_id):
+                    result.add_error("SKIN_INVALID_SKELETON_ID", f"Mesh '{mesh_id}' has invalid skeleton ID '{skel_id}'", mesh_id)
+
+                influences = skinning.get("influences")
+                if not isinstance(influences, list) or len(influences) != vertex_count:
+                    result.add_error(
+                        "SKIN_INVALID_INFLUENCE_COUNT",
+                        f"Mesh '{mesh_id}' influence count {len(influences) if isinstance(influences, list) else 0} does not match vertex count {vertex_count}",
+                        mesh_id,
+                    )
+                else:
+                    for v_idx, v_infs in enumerate(influences):
+                        if not isinstance(v_infs, list):
+                            result.add_error("SKIN_INVALID_INFLUENCES_FORMAT", f"Mesh '{mesh_id}' vertex {v_idx} influences must be a list", mesh_id)
+                            break
+                        seen_vertex_bones = set()
+                        for inf in v_infs:
+                            b_id = inf.get("bone_id")
+                            if not b_id or not BONE_ID_PATTERN.match(b_id):
+                                result.add_error("SKIN_INVALID_BONE_ID", f"Mesh '{mesh_id}' vertex {v_idx} has invalid bone ID '{b_id}'", mesh_id)
+                                break
+                            if b_id in seen_vertex_bones:
+                                result.add_error("SKIN_DUPLICATE_BONE_INFLUENCE", f"Mesh '{mesh_id}' vertex {v_idx} has duplicate influence for bone '{b_id}'", mesh_id)
+                                break
+                            seen_vertex_bones.add(b_id)
+
+                            w = inf.get("weight")
+                            if w is None or not isinstance(w, (int, float)) or not math.isfinite(w) or w < 0.0 or w > 1.0:
+                                result.add_error("SKIN_INVALID_WEIGHT", f"Mesh '{mesh_id}' vertex {v_idx} has invalid weight '{w}'", mesh_id)
+                                break
+
     @classmethod
     def validate_material(cls, material_data: Dict[str, Any], result: ValidationResult) -> None:
         """Validates a single material payload conforming to BUBRIDGE_MATERIAL v0.1.0."""
@@ -563,6 +604,133 @@ class PackageValidator:
             )
 
     @classmethod
+    def validate_animations(cls, animations_data: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates animations.json conforming to BUBRIDGE_ANIMATIONS v0.1.0."""
+        if animations_data.get("format") != "BUBRIDGE_ANIMATIONS":
+            result.add_error(
+                "ANIMATIONS_INVALID_FORMAT",
+                f"Expected format 'BUBRIDGE_ANIMATIONS', got '{animations_data.get('format')}'",
+            )
+        if animations_data.get("version") != "0.1.0":
+            result.add_error(
+                "ANIMATIONS_INVALID_VERSION",
+                f"Expected version '0.1.0', got '{animations_data.get('version')}'",
+            )
+
+        skeletons = animations_data.get("skeletons", [])
+        seen_skel_ids: Set[str] = set()
+        skel_bone_ids: Dict[str, Set[str]] = {}
+
+        for skel in skeletons:
+            skel_id = skel.get("id", "")
+            if not skel_id or not SKELETON_ID_PATTERN.match(skel_id):
+                result.add_error("SKELETON_INVALID_ID_FORMAT", f"Invalid skeleton ID '{skel_id}'", skel_id)
+
+            if skel_id in seen_skel_ids:
+                result.add_error("SKELETON_DUPLICATE_ID", f"Duplicate skeleton ID '{skel_id}'", skel_id)
+            seen_skel_ids.add(skel_id)
+
+            bones = skel.get("bones", [])
+            seen_bone_ids: Set[str] = set()
+            seen_bone_names: Set[str] = set()
+            bone_parent_map: Dict[str, Optional[str]] = {}
+
+            for bone in bones:
+                bone_id = bone.get("id", "")
+                bone_name = bone.get("name", "")
+
+                if not bone_id or not BONE_ID_PATTERN.match(bone_id):
+                    result.add_error("BONE_INVALID_ID_FORMAT", f"Skeleton '{skel_id}' bone has invalid ID '{bone_id}'", bone_id)
+
+                if bone_id in seen_bone_ids:
+                    result.add_error("BONE_DUPLICATE_ID", f"Duplicate bone ID '{bone_id}' in skeleton '{skel_id}'", bone_id)
+                seen_bone_ids.add(bone_id)
+
+                if bone_name in seen_bone_names:
+                    result.add_error("BONE_DUPLICATE_NAME", f"Duplicate bone name '{bone_name}' in skeleton '{skel_id}'", bone_id)
+                seen_bone_names.add(bone_name)
+
+                parent_id = bone.get("parent_id")
+                bone_parent_map[bone_id] = parent_id
+
+                xform = bone.get("transform", {})
+                cls._validate_transform(xform, bone_id, bone_name, result)
+
+            skel_bone_ids[skel_id] = seen_bone_ids
+
+            # Bone parent integrity
+            for b_id, p_id in bone_parent_map.items():
+                if p_id:
+                    if p_id == b_id:
+                        result.add_error("BONE_SELF_PARENT", f"Bone '{b_id}' references itself as parent", b_id)
+                    elif p_id not in seen_bone_ids:
+                        result.add_error("BONE_BROKEN_PARENT_REF", f"Bone '{b_id}' references non-existent parent '{p_id}'", b_id)
+
+            # Bone cycle detection
+            for start_id in seen_bone_ids:
+                visited = set()
+                curr = start_id
+                while curr:
+                    if curr in visited:
+                        result.add_error("BONE_HIERARCHY_CYCLE", f"Bone hierarchy cycle detected involving '{curr}' in skeleton '{skel_id}'", curr)
+                        break
+                    visited.add(curr)
+                    curr = bone_parent_map.get(curr)
+
+        # Animations validation
+        animations = animations_data.get("animations", [])
+        seen_anim_ids: Set[str] = set()
+
+        for anim in animations:
+            anim_id = anim.get("id", "")
+            if not anim_id or not ANIMATION_ID_PATTERN.match(anim_id):
+                result.add_error("ANIMATION_INVALID_ID_FORMAT", f"Invalid animation ID '{anim_id}'", anim_id)
+
+            if anim_id in seen_anim_ids:
+                result.add_error("ANIMATION_DUPLICATE_ID", f"Duplicate animation ID '{anim_id}'", anim_id)
+            seen_anim_ids.add(anim_id)
+
+            skel_ref = anim.get("skeleton_id", "")
+            if skel_ref not in seen_skel_ids:
+                result.add_error("ANIMATION_BROKEN_SKELETON_REF", f"Animation '{anim_id}' references non-existent skeleton '{skel_ref}'", anim_id)
+
+            fr = anim.get("frame_range", [])
+            if not isinstance(fr, (list, tuple)) or len(fr) != 2 or fr[0] > fr[1]:
+                result.add_error("ANIMATION_INVALID_FRAME_RANGE", f"Animation '{anim_id}' has invalid frame range '{fr}'", anim_id)
+
+            fps = anim.get("frame_rate", 0.0)
+            if not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0.0:
+                result.add_error("ANIMATION_INVALID_FRAME_RATE", f"Animation '{anim_id}' has invalid frame rate '{fps}'", anim_id)
+
+            dur = anim.get("duration", 0.0)
+            if not isinstance(dur, (int, float)) or not math.isfinite(dur) or dur < 0.0:
+                result.add_error("ANIMATION_INVALID_DURATION", f"Animation '{anim_id}' has invalid duration '{dur}'", anim_id)
+
+            valid_bones_for_skel = skel_bone_ids.get(skel_ref, set())
+            tracks = anim.get("tracks", [])
+            for track in tracks:
+                b_id = track.get("bone_id", "")
+                if b_id and b_id not in valid_bones_for_skel:
+                    result.add_error("ANIMATION_BROKEN_BONE_REF", f"Animation '{anim_id}' track references non-existent bone '{b_id}'", anim_id)
+
+                channels = track.get("channels", {})
+                for ch_name in ("location", "rotation", "scale"):
+                    keys = channels.get(ch_name, [])
+                    last_time = -1.0
+                    expected_dim = 4 if ch_name == "rotation" else 3
+                    for k in keys:
+                        t = k.get("time")
+                        if t is None or not isinstance(t, (int, float)) or not math.isfinite(t) or t < last_time:
+                            result.add_error("ANIMATION_UNSORTED_KEYFRAMES", f"Animation '{anim_id}' bone '{b_id}' channel '{ch_name}' keyframes not strictly sorted", anim_id)
+                            break
+                        last_time = t
+
+                        val = k.get("value")
+                        if not isinstance(val, list) or len(val) != expected_dim or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in val):
+                            result.add_error("ANIMATION_NON_FINITE_VALUE", f"Animation '{anim_id}' bone '{b_id}' channel '{ch_name}' has non-finite values", anim_id)
+                            break
+
+    @classmethod
     def validate_package(
         cls,
         manifest: Dict[str, Any],
@@ -571,8 +739,9 @@ class PackageValidator:
         meshes: Optional[Dict[str, Dict[str, Any]]] = None,
         materials: Optional[Dict[str, Dict[str, Any]]] = None,
         textures: Optional[Dict[str, Dict[str, Any]]] = None,
+        animations: Optional[Dict[str, Any]] = None,
     ) -> ValidationResult:
-        """Runs full validation suite on package components including meshes, materials, and textures."""
+        """Runs full validation suite on package components including meshes, materials, textures, and animations."""
         result = ValidationResult()
         cls.validate_manifest(manifest, result)
         cls.validate_scene(scene, result)
@@ -648,5 +817,35 @@ class PackageValidator:
                                 mat_id,
                             )
 
+        if animations is not None:
+            cls.validate_animations(animations, result)
+
+            valid_skel_ids = {s["id"]: {b["id"] for b in s.get("bones", [])} for s in animations.get("skeletons", []) if "id" in s}
+
+            # Check mesh skinning references
+            if meshes:
+                for mesh_id, mesh_data in meshes.items():
+                    skinning = mesh_data.get("skinning")
+                    if skinning:
+                        skel_id = skinning.get("skeleton_id")
+                        if not skel_id or skel_id not in valid_skel_ids:
+                            result.add_error("SKIN_BROKEN_SKELETON_REF", f"Mesh '{mesh_id}' references non-existent skeleton '{skel_id}'", mesh_id)
+                        else:
+                            skel_bones = valid_skel_ids[skel_id]
+                            for v_idx, infs in enumerate(skinning.get("influences", [])):
+                                for inf in infs:
+                                    b_id = inf.get("bone_id")
+                                    if b_id and b_id not in skel_bones:
+                                        result.add_error("SKIN_BROKEN_BONE_REF", f"Mesh '{mesh_id}' vertex {v_idx} references non-existent bone '{b_id}'", mesh_id)
+                                        break
+
+            # Check object skeleton references
+            valid_skel_set = set(valid_skel_ids.keys())
+            for obj in objects.get("objects", []):
+                skel_ref = obj.get("skeleton_id")
+                if skel_ref and skel_ref not in valid_skel_set:
+                    result.add_error("OBJECT_BROKEN_SKELETON_REF", f"Object '{obj.get('name')}' references non-existent skeleton '{skel_ref}'", obj.get("id"))
+
         return result
+
 

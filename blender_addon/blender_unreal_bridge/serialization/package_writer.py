@@ -43,14 +43,16 @@ def _generate_collection_id(name: str) -> str:
     return f"col_{digest}"
 
 
-def _map_object_type(blender_type: str) -> str:
+def _map_object_type(blender_type: str, is_skeletal: bool = False) -> str:
     """Map Blender object types to DATA_PROTOCOL.md canonical types."""
     if blender_type == "MESH":
-        return "STATIC_MESH"
+        return "SKELETAL_MESH" if is_skeletal else "STATIC_MESH"
     if blender_type == "EMPTY":
         return "EMPTY"
     if blender_type == "CURVE":
         return "STATIC_MESH"
+    if blender_type == "ARMATURE":
+        return "ARMATURE"
     return blender_type
 
 
@@ -102,11 +104,13 @@ def build_package_data(
     # Sort collections deterministically by ID
     collections_list.sort(key=lambda c: c["id"])
 
-    # 3. Build Objects List, Mesh Payloads, and Material Payloads
+    # 3. Build Objects List, Mesh Payloads, Material Payloads, Skeletons and Animations
     objects_list: List[Dict[str, Any]] = []
     meshes_dict: Dict[str, Dict[str, Any]] = {}
     materials_dict: Dict[str, Dict[str, Any]] = {}
     textures_dict: Dict[str, Dict[str, Any]] = {}
+    skeletons_dict: Dict[str, Dict[str, Any]] = {}
+    animations_dict: Dict[str, Dict[str, Any]] = {}
 
     for meta in inspection.objects:
         obj = scene.objects.get(meta.name)
@@ -182,10 +186,39 @@ def build_package_data(
                     except Exception as exc:
                         inspection.errors.append(f"Failed to extract material for slot '{slot.name}': {exc}")
 
+        # Extract Armature skeleton and animations (Milestone 9)
+        if meta.object_type == "ARMATURE" and obj is not None and getattr(obj, "data", None):
+            try:
+                from ..animation.armature_extractor import extract_skeleton_data
+                from ..animation.animation_extractor import extract_animations_for_armature
+
+                skel_data = extract_skeleton_data(obj)
+                skel_id = skel_data["id"]
+                if skel_id not in skeletons_dict:
+                    skeletons_dict[skel_id] = skel_data
+
+                clips = extract_animations_for_armature(obj, scene)
+                for c in clips:
+                    if c["id"] not in animations_dict:
+                        animations_dict[c["id"]] = c
+            except Exception as exc:
+                inspection.errors.append(f"Failed to extract skeleton/animations for '{meta.name}': {exc}")
+
+        is_skeletal = False
+        obj_skel_id = None
+        if meta.object_type == "MESH" and mesh_ref:
+            mesh_info = meshes_dict.get(mesh_ref["mesh_id"])
+            if mesh_info and "skinning" in mesh_info and mesh_info["skinning"]:
+                is_skeletal = True
+                obj_skel_id = mesh_info["skinning"].get("skeleton_id")
+        elif meta.object_type == "ARMATURE" and obj is not None:
+            from ..collectors.id_generator import get_skeleton_id
+            obj_skel_id = get_skeleton_id(obj)
+
         obj_data = {
             "id": meta.bubridge_id,
             "name": meta.name,
-            "type": _map_object_type(meta.object_type),
+            "type": _map_object_type(meta.object_type, is_skeletal=is_skeletal),
             "visible": is_visible,
             "collection_id": col_id,
             "collection_ids": col_ids_list,
@@ -194,6 +227,9 @@ def build_package_data(
             "mesh_reference": mesh_ref,
             "material_slots": mat_slots,
         }
+        if obj_skel_id:
+            obj_data["skeleton_id"] = obj_skel_id
+
         objects_list.append(obj_data)
 
     # Sort objects deterministically by Bridge ID
@@ -252,7 +288,26 @@ def build_package_data(
         },
     }
 
+    if skeletons_dict:
+        manifest_dict["content_summary"]["skeleton_count"] = len(skeletons_dict)
+    if animations_dict:
+        manifest_dict["content_summary"]["animation_count"] = len(animations_dict)
+
     objects_dict = {"objects": objects_list}
+
+    animations_doc = None
+    if skeletons_dict or animations_dict:
+        skeletons_list = list(skeletons_dict.values())
+        skeletons_list.sort(key=lambda s: s["id"])
+        animations_list = list(animations_dict.values())
+        animations_list.sort(key=lambda a: a["id"])
+        animations_doc = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_ANIMATIONS",
+            "version": "0.1.0",
+            "skeletons": skeletons_list,
+            "animations": animations_list,
+        }
 
     # 6. Run validation
     validation_result = PackageValidator.validate_package(
@@ -262,6 +317,7 @@ def build_package_data(
         meshes=meshes_dict,
         materials=materials_dict,
         textures=textures_dict,
+        animations=animations_doc,
     )
 
     # Transfer inspection warnings/errors into the validation result
@@ -270,7 +326,7 @@ def build_package_data(
     for e in inspection.errors:
         validation_result.add_error("SCENE_INSPECTION_ERROR", e)
 
-    return {
+    result_data = {
         "manifest": manifest_dict,
         "scene": scene_dict,
         "objects": objects_dict,
@@ -280,6 +336,10 @@ def build_package_data(
         "validation_result": validation_result,
         "timestamp": timestamp,
     }
+    if animations_doc:
+        result_data["animations"] = animations_doc
+
+    return result_data
 
 
 def write_bridge_package(
@@ -393,7 +453,13 @@ def write_bridge_package(
         }
         (stage_dir / "textures.json").write_text(serialize_json(textures_doc), encoding="utf-8")
 
-        # 8. Finalize: Atomic move/replace
+        # 8. Write animations.json if present
+        if "animations" in package_data and package_data["animations"]:
+            (stage_dir / "animations.json").write_text(
+                serialize_json(package_data["animations"]), encoding="utf-8"
+            )
+
+        # 9. Finalize: Atomic move/replace
         if package_dir.exists():
             shutil.rmtree(package_dir)
         stage_dir.rename(package_dir)

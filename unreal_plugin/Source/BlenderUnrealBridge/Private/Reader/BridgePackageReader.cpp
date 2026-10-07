@@ -53,18 +53,21 @@ bool FBridgePackageReader::LoadPackage(
 	// 7. Load texture assets from textures.json
 	LoadTextures(PackageDirectory, OutPackageData.Textures, OutReport);
 
-	// 8. Build fast lookup ID map
+	// 8. Load animation and skeleton assets from animations.json
+	LoadAnimations(PackageDirectory, OutPackageData.Skeletons, OutPackageData.Animations, OutReport);
+
+	// 9. Build fast lookup ID map
 	OutPackageData.RebuildIdMap();
 
-	// 9. Execute full protocol validation
+	// 10. Execute full protocol validation
 	if (!FBridgePackageValidator::ValidatePackage(OutPackageData, OutReport))
 	{
-		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, materials, textures, or hierarchy failed validation"));
+		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, materials, textures, animations, or hierarchy failed validation"));
 		return false;
 	}
 
-	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects, %d meshes, %d materials, and %d textures"),
-		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num(), OutPackageData.Materials.Num(), OutPackageData.Textures.Num()));
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects, %d meshes, %d materials, %d textures, %d skeletons, and %d animations"),
+		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num(), OutPackageData.Materials.Num(), OutPackageData.Textures.Num(), OutPackageData.Skeletons.Num(), OutPackageData.Animations.Num()));
 
 	return true;
 }
@@ -192,6 +195,8 @@ bool FBridgePackageReader::ParseManifest(
 		(*SummaryObj)->TryGetNumberField(TEXT("mesh_count"), OutManifest.ContentSummary.MeshCount);
 		(*SummaryObj)->TryGetNumberField(TEXT("material_count"), OutManifest.ContentSummary.MaterialCount);
 		(*SummaryObj)->TryGetNumberField(TEXT("texture_count"), OutManifest.ContentSummary.TextureCount);
+		(*SummaryObj)->TryGetNumberField(TEXT("skeleton_count"), OutManifest.ContentSummary.SkeletonCount);
+		(*SummaryObj)->TryGetNumberField(TEXT("animation_count"), OutManifest.ContentSummary.AnimationCount);
 	}
 
 	return true;
@@ -313,6 +318,8 @@ bool FBridgePackageReader::ParseObjects(
 				}
 			}
 		}
+
+		ObjEntry->TryGetStringField(TEXT("skeleton_id"), BridgeObj.SkeletonId);
 
 		OutObjects.Add(BridgeObj);
 	}
@@ -526,6 +533,43 @@ bool FBridgePackageReader::ParseMesh(
 		}
 	}
 
+	// Skinning data (Milestone 9)
+	const TSharedPtr<FJsonObject>* SkinningObj = nullptr;
+	if (JsonObject->TryGetObjectField(TEXT("skinning"), SkinningObj) && SkinningObj && (*SkinningObj).IsValid())
+	{
+		OutMesh.bHasSkinning = true;
+		(*SkinningObj)->TryGetStringField(TEXT("skeleton_id"), OutMesh.Skinning.SkeletonId);
+
+		const TArray<TSharedPtr<FJsonValue>>* InfluencesArray = nullptr;
+		if ((*SkinningObj)->TryGetArrayField(TEXT("influences"), InfluencesArray) && InfluencesArray)
+		{
+			for (const TSharedPtr<FJsonValue>& VVal : *InfluencesArray)
+			{
+				FBridgeVertexSkinning VInf;
+				const TArray<TSharedPtr<FJsonValue>>* InfsArray = nullptr;
+				if (VVal.IsValid() && VVal->TryGetArray(InfsArray) && InfsArray)
+				{
+					for (const TSharedPtr<FJsonValue>& InfVal : *InfsArray)
+					{
+						const TSharedPtr<FJsonObject>& InfObj = InfVal->AsObject();
+						if (InfObj.IsValid())
+						{
+							FBridgeVertexBoneWeight W;
+							InfObj->TryGetStringField(TEXT("bone_id"), W.BoneId);
+							double WeightVal = 0.0;
+							if (InfObj->TryGetNumberField(TEXT("weight"), WeightVal))
+							{
+								W.Weight = static_cast<float>(WeightVal);
+							}
+							VInf.Influences.Add(W);
+						}
+					}
+				}
+				OutMesh.Skinning.Weights.Add(VInf);
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -541,7 +585,7 @@ bool FBridgePackageReader::LoadMeshes(
 	TSet<FString> MeshFilesToLoad;
 	for (const FBridgeObject& Obj : Objects)
 	{
-		if (Obj.Type == TEXT("STATIC_MESH") && Obj.MeshReference.IsValid())
+		if (Obj.HasMesh())
 		{
 			MeshFilesToLoad.Add(Obj.MeshReference.File);
 		}
@@ -907,6 +951,256 @@ bool FBridgePackageReader::LoadTextures(
 					if (!TexData.Id.IsEmpty())
 					{
 						OutTextures.Add(TexData.Id, TexData);
+					}
+				}
+			}
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseSkeleton(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeSkeletonData& OutSkeleton,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject.IsValid())
+	{
+		return false;
+	}
+
+	JsonObject->TryGetStringField(TEXT("id"), OutSkeleton.Id);
+	JsonObject->TryGetStringField(TEXT("name"), OutSkeleton.Name);
+
+	const TArray<TSharedPtr<FJsonValue>>* BonesArray = nullptr;
+	if (JsonObject->TryGetArrayField(TEXT("bones"), BonesArray) && BonesArray)
+	{
+		for (const TSharedPtr<FJsonValue>& BVal : *BonesArray)
+		{
+			const TSharedPtr<FJsonObject>& BObj = BVal->AsObject();
+			if (BObj.IsValid())
+			{
+				FBridgeBoneData Bone;
+				BObj->TryGetStringField(TEXT("id"), Bone.Id);
+				BObj->TryGetStringField(TEXT("name"), Bone.Name);
+				BObj->TryGetStringField(TEXT("parent_id"), Bone.ParentId);
+
+				const TSharedPtr<FJsonObject>* XformObj = nullptr;
+				if (BObj->TryGetObjectField(TEXT("transform"), XformObj) && XformObj && (*XformObj).IsValid())
+				{
+					ParseTransform(*XformObj, Bone.Id, Bone.Name, Bone.RestTransform, OutReport);
+				}
+
+				OutSkeleton.Bones.Add(Bone);
+			}
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseAnimationClip(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeAnimationClip& OutClip,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject.IsValid())
+	{
+		return false;
+	}
+
+	JsonObject->TryGetStringField(TEXT("id"), OutClip.Id);
+	JsonObject->TryGetStringField(TEXT("name"), OutClip.Name);
+	JsonObject->TryGetStringField(TEXT("skeleton_id"), OutClip.SkeletonId);
+
+	double FpsVal = 24.0;
+	if (JsonObject->TryGetNumberField(TEXT("frame_rate"), FpsVal))
+	{
+		OutClip.FrameRate = static_cast<float>(FpsVal);
+	}
+
+	double DurVal = 0.0;
+	if (JsonObject->TryGetNumberField(TEXT("duration"), DurVal))
+	{
+		OutClip.Duration = static_cast<float>(DurVal);
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* FrameRangeArray = nullptr;
+	if (JsonObject->TryGetArrayField(TEXT("frame_range"), FrameRangeArray) && FrameRangeArray && FrameRangeArray->Num() >= 2)
+	{
+		OutClip.StartFrame = static_cast<float>((*FrameRangeArray)[0]->AsNumber());
+		OutClip.EndFrame = static_cast<float>((*FrameRangeArray)[1]->AsNumber());
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* TracksArray = nullptr;
+	if (JsonObject->TryGetArrayField(TEXT("tracks"), TracksArray) && TracksArray)
+	{
+		for (const TSharedPtr<FJsonValue>& TVal : *TracksArray)
+		{
+			const TSharedPtr<FJsonObject>& TObj = TVal->AsObject();
+			if (!TObj.IsValid())
+			{
+				continue;
+			}
+
+			FBridgeBoneAnimationTrack Track;
+			TObj->TryGetStringField(TEXT("bone_id"), Track.BoneId);
+
+			const TSharedPtr<FJsonObject>* ChannelsObj = nullptr;
+			if (TObj->TryGetObjectField(TEXT("channels"), ChannelsObj) && ChannelsObj && (*ChannelsObj).IsValid())
+			{
+				// Location keys
+				const TArray<TSharedPtr<FJsonValue>>* LocKeysArray = nullptr;
+				if ((*ChannelsObj)->TryGetArrayField(TEXT("location"), LocKeysArray) && LocKeysArray)
+				{
+					for (const TSharedPtr<FJsonValue>& KVal : *LocKeysArray)
+					{
+						const TSharedPtr<FJsonObject>& KObj = KVal->AsObject();
+						if (KObj.IsValid())
+						{
+							FBridgeVectorKeyframe Key;
+							double FrameNum = 0.0, TimeNum = 0.0;
+							KObj->TryGetNumberField(TEXT("frame"), FrameNum);
+							KObj->TryGetNumberField(TEXT("time"), TimeNum);
+							Key.Frame = static_cast<float>(FrameNum);
+							Key.Time = static_cast<float>(TimeNum);
+
+							const TArray<TSharedPtr<FJsonValue>>* ValArray = nullptr;
+							if (KObj->TryGetArrayField(TEXT("value"), ValArray) && ValArray && ValArray->Num() >= 3)
+							{
+								Key.Value = FVector(
+									(*ValArray)[0]->AsNumber(),
+									(*ValArray)[1]->AsNumber(),
+									(*ValArray)[2]->AsNumber());
+							}
+							Track.LocationKeys.Add(Key);
+						}
+					}
+				}
+
+				// Rotation keys (quaternion: x, y, z, w)
+				const TArray<TSharedPtr<FJsonValue>>* RotKeysArray = nullptr;
+				if ((*ChannelsObj)->TryGetArrayField(TEXT("rotation"), RotKeysArray) && RotKeysArray)
+				{
+					for (const TSharedPtr<FJsonValue>& KVal : *RotKeysArray)
+					{
+						const TSharedPtr<FJsonObject>& KObj = KVal->AsObject();
+						if (KObj.IsValid())
+						{
+							FBridgeQuatKeyframe Key;
+							double FrameNum = 0.0, TimeNum = 0.0;
+							KObj->TryGetNumberField(TEXT("frame"), FrameNum);
+							KObj->TryGetNumberField(TEXT("time"), TimeNum);
+							Key.Frame = static_cast<float>(FrameNum);
+							Key.Time = static_cast<float>(TimeNum);
+
+							const TArray<TSharedPtr<FJsonValue>>* ValArray = nullptr;
+							if (KObj->TryGetArrayField(TEXT("value"), ValArray) && ValArray && ValArray->Num() >= 4)
+							{
+								Key.Value = FQuat(
+									(*ValArray)[0]->AsNumber(),
+									(*ValArray)[1]->AsNumber(),
+									(*ValArray)[2]->AsNumber(),
+									(*ValArray)[3]->AsNumber());
+							}
+							Track.RotationKeys.Add(Key);
+						}
+					}
+				}
+
+				// Scale keys
+				const TArray<TSharedPtr<FJsonValue>>* ScaleKeysArray = nullptr;
+				if ((*ChannelsObj)->TryGetArrayField(TEXT("scale"), ScaleKeysArray) && ScaleKeysArray)
+				{
+					for (const TSharedPtr<FJsonValue>& KVal : *ScaleKeysArray)
+					{
+						const TSharedPtr<FJsonObject>& KObj = KVal->AsObject();
+						if (KObj.IsValid())
+						{
+							FBridgeVectorKeyframe Key;
+							double FrameNum = 0.0, TimeNum = 0.0;
+							KObj->TryGetNumberField(TEXT("frame"), FrameNum);
+							KObj->TryGetNumberField(TEXT("time"), TimeNum);
+							Key.Frame = static_cast<float>(FrameNum);
+							Key.Time = static_cast<float>(TimeNum);
+
+							const TArray<TSharedPtr<FJsonValue>>* ValArray = nullptr;
+							if (KObj->TryGetArrayField(TEXT("value"), ValArray) && ValArray && ValArray->Num() >= 3)
+							{
+								Key.Value = FVector(
+									(*ValArray)[0]->AsNumber(),
+									(*ValArray)[1]->AsNumber(),
+									(*ValArray)[2]->AsNumber());
+							}
+							Track.ScaleKeys.Add(Key);
+						}
+					}
+				}
+			}
+
+			OutClip.Tracks.Add(Track);
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::LoadAnimations(
+	const FString& PackageDirectory,
+	TMap<FString, FBridgeSkeletonData>& OutSkeletons,
+	TMap<FString, FBridgeAnimationClip>& OutAnimations,
+	FBridgeValidationReport& OutReport)
+{
+	FString AnimFile = FPaths::Combine(PackageDirectory, TEXT("animations.json"));
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	if (!PlatformFile.FileExists(*AnimFile))
+	{
+		// animations.json is optional if package has no animations/skeletons
+		return true;
+	}
+
+	TSharedPtr<FJsonObject> AnimDoc;
+	if (!ReadJsonFile(AnimFile, AnimDoc, OutReport))
+	{
+		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* SkelArray = nullptr;
+	if (AnimDoc->TryGetArrayField(TEXT("skeletons"), SkelArray) && SkelArray)
+	{
+		for (const TSharedPtr<FJsonValue>& SVal : *SkelArray)
+		{
+			const TSharedPtr<FJsonObject>& SObj = SVal->AsObject();
+			if (SObj.IsValid())
+			{
+				FBridgeSkeletonData Skel;
+				if (ParseSkeleton(SObj, Skel, OutReport))
+				{
+					if (!Skel.Id.IsEmpty())
+					{
+						OutSkeletons.Add(Skel.Id, Skel);
+					}
+				}
+			}
+		}
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* AnimArray = nullptr;
+	if (AnimDoc->TryGetArrayField(TEXT("animations"), AnimArray) && AnimArray)
+	{
+		for (const TSharedPtr<FJsonValue>& AVal : *AnimArray)
+		{
+			const TSharedPtr<FJsonObject>& AObj = AVal->AsObject();
+			if (AObj.IsValid())
+			{
+				FBridgeAnimationClip Clip;
+				if (ParseAnimationClip(AObj, Clip, OutReport))
+				{
+					if (!Clip.Id.IsEmpty())
+					{
+						OutAnimations.Add(Clip.Id, Clip);
 					}
 				}
 			}

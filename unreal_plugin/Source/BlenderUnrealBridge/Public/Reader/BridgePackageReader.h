@@ -135,4 +135,20 @@ private:
 		const FString& PackageDirectory,
 		TMap<FString, FBridgeTextureData>& OutTextures,
 		FBridgeValidationReport& OutReport);
+
+	static bool ParseSkeleton(
+		const TSharedPtr<class FJsonObject>& JsonObject,
+		FBridgeSkeletonData& OutSkeleton,
+		FBridgeValidationReport& OutReport);
+
+	static bool ParseAnimationClip(
+		const TSharedPtr<class FJsonObject>& JsonObject,
+		FBridgeAnimationClip& OutClip,
+		FBridgeValidationReport& OutReport);
+
+	static bool LoadAnimations(
+		const FString& PackageDirectory,
+		TMap<FString, FBridgeSkeletonData>& OutSkeletons,
+		TMap<FString, FBridgeAnimationClip>& OutAnimations,
+		FBridgeValidationReport& OutReport);
 };

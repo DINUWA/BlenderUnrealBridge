@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE",
+  "version": "0.1.0",
+  "created_at": "2026-10-05T12:00:00Z",
+  "generator": {
+    "name": "BlenderUnrealBridgeAddon",
+    "version": "0.1.0"
+  },
+  "source": {
+    "application": "Blender",
+    "version": "4.5.3 LTS",
+    "scene_name": "FixtureScene",
+    "unit_length": "meter",
+    "unit_scale": 1.0
+  },
+  "target": {
+    "application": "Unreal Engine",
+    "version": "5.x",
+    "unit_length": "centimeter"
+  },
+  "coordinate_system": {
+    "up_axis": "Z",
+    "forward_axis": "X",
+    "right_axis": "Y",
+    "handedness": "left_handed",
+    "unit": "centimeter"
+  },
+  "content_summary": {
+    "object_count": 1,
+    "mesh_count": 0,
+    "material_count": 0,
+    "texture_count": 0,
+    "skeleton_count": 1,
+    "animation_count": 1
+  }
+}

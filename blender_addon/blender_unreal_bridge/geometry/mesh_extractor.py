@@ -172,7 +172,7 @@ def extract_mesh_data(obj: bpy.types.Object, depsgraph: Optional[bpy.types.Depsg
 
         uv_layer_count = len(mesh.uv_layers)
 
-        return {
+        payload = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "format": MESH_FORMAT,
             "version": MESH_VERSION,
@@ -200,6 +200,16 @@ def extract_mesh_data(obj: bpy.types.Object, depsgraph: Optional[bpy.types.Depsg
             "triangles": triangles,
             "material_slots": material_slots
         }
+
+        # 6. Extract Skinning Weights (Milestone 9)
+        from ..animation.skinning_extractor import find_associated_armature, extract_skinning_data
+        arm_obj = find_associated_armature(obj)
+        if arm_obj and len(obj.vertex_groups) > 0:
+            skinning_info = extract_skinning_data(obj, arm_obj, mesh)
+            if skinning_info:
+                payload["skinning"] = skinning_info
+
+        return payload
 
     finally:
         if depsgraph and eval_obj != obj:

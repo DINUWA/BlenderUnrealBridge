@@ -79,7 +79,8 @@ def write_fixture(
     meshes: dict = None,
     materials: dict = None,
     textures: list = None,
-    skip_texture_files: set = None
+    skip_texture_files: set = None,
+    animations: dict = None
 ):
     pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
     if pkg_dir.exists():
@@ -96,6 +97,9 @@ def write_fixture(
     manifest_copy["content_summary"]["mesh_count"] = len(meshes) if meshes else 0
     manifest_copy["content_summary"]["material_count"] = len(materials) if materials else 0
     manifest_copy["content_summary"]["texture_count"] = len(textures) if textures else 0
+    if animations:
+        manifest_copy["content_summary"]["skeleton_count"] = len(animations.get("skeletons", []))
+        manifest_copy["content_summary"]["animation_count"] = len(animations.get("animations", []))
 
     (pkg_dir / "manifest.json").write_text(json.dumps(manifest_copy, indent=2), encoding="utf-8")
     (pkg_dir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
@@ -128,6 +132,9 @@ def write_fixture(
                 tfile = pkg_dir / rel_path
                 tfile.parent.mkdir(parents=True, exist_ok=True)
                 tfile.write_bytes(MINIMAL_PNG_BYTES)
+
+    if animations is not None:
+        (pkg_dir / "animations.json").write_text(json.dumps(animations, indent=2), encoding="utf-8")
 
     report = {
         "timestamp": FIXED_TIMESTAMP,
@@ -1827,7 +1834,401 @@ def generate_all_fixtures():
         }]
     )
 
-    print(f"Generated 36 test fixtures in {FIXTURES_DIR}")
+    # 37. Valid Skeleton and Animation
+    valid_skeleton = {
+        "id": "skel_00000001",
+        "name": "Armature",
+        "bones": [
+            {
+                "id": "bone_00000001",
+                "name": "Root",
+                "parent_id": None,
+                "transform": IDENTITY_XFORM
+            },
+            {
+                "id": "bone_00000002",
+                "name": "Spine",
+                "parent_id": "bone_00000001",
+                "transform": {
+                    "location": [0.0, 0.0, 50.0],
+                    "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+                    "rotation_euler": [0.0, 0.0, 0.0],
+                    "rotation_mode": "QUATERNION",
+                    "scale": [1.0, 1.0, 1.0],
+                    "has_negative_scale": False,
+                    "origin_offset": [0.0, 0.0, 0.0]
+                }
+            }
+        ]
+    }
+
+    valid_animation = {
+        "id": "anim_00000001",
+        "name": "Idle",
+        "skeleton_id": "skel_00000001",
+        "frame_rate": 24.0,
+        "frame_range": [0.0, 10.0],
+        "duration": 0.4167,
+        "tracks": [
+            {
+                "bone_id": "bone_00000001",
+                "channels": {
+                    "location": [
+                        {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [0.0, 0.0, 0.0]}
+                    ],
+                    "rotation": [
+                        {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0, 1.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [0.0, 0.0, 0.0, 1.0]}
+                    ],
+                    "scale": [
+                        {"frame": 0.0, "time": 0.0, "value": [1.0, 1.0, 1.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [1.0, 1.0, 1.0]}
+                    ]
+                }
+            },
+            {
+                "bone_id": "bone_00000002",
+                "channels": {
+                    "location": [
+                        {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 50.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [0.0, 0.0, 55.0]}
+                    ],
+                    "rotation": [
+                        {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0, 1.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [0.0, 0.0, 0.0, 1.0]}
+                    ],
+                    "scale": [
+                        {"frame": 0.0, "time": 0.0, "value": [1.0, 1.0, 1.0]},
+                        {"frame": 10.0, "time": 0.4167, "value": [1.0, 1.0, 1.0]}
+                    ]
+                }
+            }
+        ]
+    }
+
+    base_anim_doc = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_ANIMATIONS",
+        "version": "0.1.0",
+        "skeletons": [valid_skeleton],
+        "animations": [valid_animation]
+    }
+
+    write_fixture(
+        "37_valid_skeleton_and_animation",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000042",
+            "name": "ArmatureObject",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "skel_00000001"
+        }],
+        animations=base_anim_doc
+    )
+
+    # 38. Skinned Mesh
+    valid_skinned_mesh = {
+        "format": "BUBRIDGE_MESH",
+        "version": "0.1.0",
+        "mesh_id": "mesh_00000003",
+        "name": "SkinnedMesh",
+        "vertex_count": 4,
+        "triangle_count": 2,
+        "uv_layer_count": 1,
+        "material_slot_count": 1,
+        "bounds": {
+            "min": [-50.0, -50.0, 0.0],
+            "max": [50.0, 50.0, 100.0]
+        },
+        "vertices": [
+            [-50.0, -50.0, 0.0],
+            [50.0, -50.0, 0.0],
+            [50.0, 50.0, 100.0],
+            [-50.0, 50.0, 100.0]
+        ],
+        "triangles": [
+            {
+                "vertex_indices": [0, 1, 2],
+                "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                "uvs": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+                "material_slot_index": 0
+            },
+            {
+                "vertex_indices": [0, 2, 3],
+                "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                "uvs": [[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                "material_slot_index": 0
+            }
+        ],
+        "material_slots": [
+            {
+                "slot_index": 0,
+                "slot_name": "M_Default",
+                "material_id": None
+            }
+        ],
+        "skinning": {
+            "skeleton_id": "skel_00000001",
+            "influences": [
+                [{"bone_id": "bone_00000001", "weight": 1.0}],
+                [{"bone_id": "bone_00000001", "weight": 1.0}],
+                [{"bone_id": "bone_00000002", "weight": 1.0}],
+                [{"bone_id": "bone_00000002", "weight": 1.0}]
+            ]
+        }
+    }
+
+    write_fixture(
+        "38_skinned_mesh",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000043",
+            "name": "SkinnedMeshObject",
+            "type": "SKELETAL_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000003",
+                "file": "meshes/mesh_00000003.json",
+                "submesh_index": 0
+            },
+            "material_slots": [],
+            "skeleton_id": "skel_00000001"
+        }],
+        meshes={"mesh_00000003": valid_skinned_mesh},
+        animations=base_anim_doc
+    )
+
+    # 39. Invalid Skeleton ID Format
+    bad_skel_doc = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_ANIMATIONS",
+        "version": "0.1.0",
+        "skeletons": [
+            {
+                "id": "invalid_skel_id",
+                "name": "BadArmature",
+                "bones": []
+            }
+        ],
+        "animations": []
+    }
+    write_fixture(
+        "39_invalid_skeleton_id_format",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000044",
+            "name": "ArmatureObject",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "invalid_skel_id"
+        }],
+        animations=bad_skel_doc
+    )
+
+    # 40. Bone Self-Parent
+    self_parent_skel = {
+        "id": "skel_00000002",
+        "name": "SelfParentArmature",
+        "bones": [
+            {
+                "id": "bone_00000003",
+                "name": "SelfBone",
+                "parent_id": "bone_00000003",
+                "transform": IDENTITY_XFORM
+            }
+        ]
+    }
+    write_fixture(
+        "40_bone_self_parent",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000045",
+            "name": "SelfParentArmatureObj",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "skel_00000002"
+        }],
+        animations={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_ANIMATIONS",
+            "version": "0.1.0",
+            "skeletons": [self_parent_skel],
+            "animations": []
+        }
+    )
+
+    # 41. Bone Hierarchy Cycle
+    cycle_skel = {
+        "id": "skel_00000003",
+        "name": "CycleArmature",
+        "bones": [
+            {
+                "id": "bone_00000004",
+                "name": "BoneA",
+                "parent_id": "bone_00000005",
+                "transform": IDENTITY_XFORM
+            },
+            {
+                "id": "bone_00000005",
+                "name": "BoneB",
+                "parent_id": "bone_00000004",
+                "transform": IDENTITY_XFORM
+            }
+        ]
+    }
+    write_fixture(
+        "41_bone_hierarchy_cycle",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000046",
+            "name": "CycleArmatureObj",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "skel_00000003"
+        }],
+        animations={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_ANIMATIONS",
+            "version": "0.1.0",
+            "skeletons": [cycle_skel],
+            "animations": []
+        }
+    )
+
+    # 42. Skinned Mesh Broken Bone Reference
+    bad_bone_mesh = dict(valid_skinned_mesh)
+    bad_bone_mesh["mesh_id"] = "mesh_00000004"
+    bad_bone_mesh["skinning"] = {
+        "skeleton_id": "skel_00000001",
+        "influences": [
+            [{"bone_id": "bone_99999999", "weight": 1.0}],  # Non-existent bone
+            [{"bone_id": "bone_00000001", "weight": 1.0}],
+            [{"bone_id": "bone_00000002", "weight": 1.0}],
+            [{"bone_id": "bone_00000002", "weight": 1.0}]
+        ]
+    }
+    write_fixture(
+        "42_skin_broken_bone_ref",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000047",
+            "name": "BadBoneMeshObj",
+            "type": "SKELETAL_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000004",
+                "file": "meshes/mesh_00000004.json",
+                "submesh_index": 0
+            },
+            "material_slots": [],
+            "skeleton_id": "skel_00000001"
+        }],
+        meshes={"mesh_00000004": bad_bone_mesh},
+        animations=base_anim_doc
+    )
+
+    # 43. Animation Unsorted Keyframes
+    unsorted_anim = {
+        "id": "anim_00000002",
+        "name": "UnsortedClip",
+        "skeleton_id": "skel_00000001",
+        "frame_rate": 24.0,
+        "frame_range": [0.0, 10.0],
+        "duration": 0.4167,
+        "tracks": [
+            {
+                "bone_id": "bone_00000001",
+                "channels": {
+                    "location": [
+                        {"frame": 5.0, "time": 0.208, "value": [0.0, 0.0, 10.0]},
+                        {"frame": 0.0, "time": 0.0, "value": [0.0, 0.0, 0.0]}  # Unsorted!
+                    ],
+                    "rotation": [],
+                    "scale": []
+                }
+            }
+        ]
+    }
+    write_fixture(
+        "43_animation_unsorted_keyframes",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000048",
+            "name": "UnsortedAnimArmatureObj",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "skel_00000001"
+        }],
+        animations={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_ANIMATIONS",
+            "version": "0.1.0",
+            "skeletons": [valid_skeleton],
+            "animations": [unsorted_anim]
+        }
+    )
+
+    # 44. Object Broken Skeleton Reference
+    write_fixture(
+        "44_object_broken_skeleton_ref",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000049",
+            "name": "BrokenSkelObj",
+            "type": "ARMATURE",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": [],
+            "skeleton_id": "skel_99999999"  # Non-existent
+        }],
+        animations=base_anim_doc
+    )
+
+    print(f"Generated 44 test fixtures in {FIXTURES_DIR}")
 
 
 if __name__ == "__main__":

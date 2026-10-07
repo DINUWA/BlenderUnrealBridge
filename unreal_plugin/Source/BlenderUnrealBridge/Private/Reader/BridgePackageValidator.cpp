@@ -98,6 +98,7 @@ bool FBridgePackageValidator::ValidatePackage(
 	bValid &= ValidateMeshes(PackageData.Meshes, PackageData.Objects, OutReport);
 	bValid &= ValidateMaterials(PackageData.Materials, PackageData.Meshes, PackageData.Objects, OutReport);
 	bValid &= ValidateTextures(PackageData.Textures, PackageData.Materials, PackageData.PackageDirectory, OutReport);
+	bValid &= ValidateAnimations(PackageData.Skeletons, PackageData.Animations, PackageData.Meshes, PackageData.Objects, OutReport);
 
 	// Validate object -> collection references
 	TSet<FString> ValidColIds;
@@ -357,7 +358,7 @@ bool FBridgePackageValidator::ValidateObjects(
 		ParentMap.Add(Obj.Id, Obj.ParentId);
 
 		// 2. Object type check
-		if (Obj.Type != TEXT("STATIC_MESH") && Obj.Type != TEXT("EMPTY") && Obj.Type != TEXT("CURVE"))
+		if (Obj.Type != TEXT("STATIC_MESH") && Obj.Type != TEXT("SKELETAL_MESH") && Obj.Type != TEXT("ARMATURE") && Obj.Type != TEXT("EMPTY") && Obj.Type != TEXT("CURVE"))
 		{
 			OutReport.AddWarning(
 				TEXT("OBJECT_UNRECOGNIZED_TYPE"),
@@ -554,6 +555,71 @@ bool FBridgePackageValidator::ValidateMesh(
 		}
 	}
 
+	// Milestone 9: Skinning validation
+	if (Mesh.bHasSkinning)
+	{
+		const FBridgeSkinningData& Skin = Mesh.Skinning;
+		if (Skin.SkeletonId.IsEmpty() || !IsValidSkeletonId(Skin.SkeletonId))
+		{
+			OutReport.AddError(
+				TEXT("SKIN_INVALID_SKELETON_ID"),
+				FString::Printf(TEXT("Mesh '%s' has invalid skeleton ID '%s'"), *Mesh.MeshId, *Skin.SkeletonId),
+				Mesh.MeshId);
+			bValid = false;
+		}
+
+		if (Skin.Weights.Num() != Mesh.VertexCount)
+		{
+			OutReport.AddError(
+				TEXT("SKIN_INVALID_INFLUENCE_COUNT"),
+				FString::Printf(TEXT("Mesh '%s' skinning weight count %d does not match vertex count %d"),
+					*Mesh.MeshId, Skin.Weights.Num(), Mesh.VertexCount),
+				Mesh.MeshId);
+			bValid = false;
+		}
+		else
+		{
+			for (int32 v = 0; v < Skin.Weights.Num(); ++v)
+			{
+				const FBridgeVertexSkinning& VInf = Skin.Weights[v];
+				TSet<FString> SeenBones;
+				for (const FBridgeVertexBoneWeight& Inf : VInf.Influences)
+				{
+					if (Inf.BoneId.IsEmpty() || !IsValidBoneId(Inf.BoneId))
+					{
+						OutReport.AddError(
+							TEXT("SKIN_INVALID_BONE_ID"),
+							FString::Printf(TEXT("Mesh '%s' vertex %d has invalid bone ID '%s'"), *Mesh.MeshId, v, *Inf.BoneId),
+							Mesh.MeshId);
+						bValid = false;
+						break;
+					}
+
+					if (SeenBones.Contains(Inf.BoneId))
+					{
+						OutReport.AddError(
+							TEXT("SKIN_DUPLICATE_BONE_INFLUENCE"),
+							FString::Printf(TEXT("Mesh '%s' vertex %d has duplicate influence for bone '%s'"), *Mesh.MeshId, v, *Inf.BoneId),
+							Mesh.MeshId);
+						bValid = false;
+						break;
+					}
+					SeenBones.Add(Inf.BoneId);
+
+					if (!FMath::IsFinite(Inf.Weight) || Inf.Weight < 0.0f || Inf.Weight > 1.0f)
+					{
+						OutReport.AddError(
+							TEXT("SKIN_INVALID_WEIGHT"),
+							FString::Printf(TEXT("Mesh '%s' vertex %d has invalid weight %f"), *Mesh.MeshId, v, Inf.Weight),
+							Mesh.MeshId);
+						bValid = false;
+						break;
+					}
+				}
+			}
+		}
+	}
+
 	return bValid;
 }
 
@@ -573,7 +639,7 @@ bool FBridgePackageValidator::ValidateMeshes(
 	// Validate object mesh references
 	for (const FBridgeObject& Obj : Objects)
 	{
-		if (Obj.Type == TEXT("STATIC_MESH") && Obj.MeshReference.IsValid())
+		if ((Obj.Type == TEXT("STATIC_MESH") || Obj.Type == TEXT("SKELETAL_MESH")) && Obj.MeshReference.IsValid())
 		{
 			const FString& MeshId = Obj.MeshReference.MeshId;
 			if (!Meshes.Contains(MeshId))
@@ -822,5 +888,398 @@ bool FBridgePackageValidator::ValidateTextures(
 	}
 
 	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateSkeleton(
+	const FBridgeSkeletonData& Skeleton,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	if (Skeleton.Id.IsEmpty() || !IsValidSkeletonId(Skeleton.Id))
+	{
+		OutReport.AddError(
+			TEXT("SKELETON_INVALID_ID_FORMAT"),
+			FString::Printf(TEXT("Skeleton '%s' has invalid ID format '%s'"), *Skeleton.Name, *Skeleton.Id),
+			Skeleton.Id);
+		bValid = false;
+	}
+
+	TSet<FString> SeenBoneIds;
+	TSet<FString> SeenBoneNames;
+	TMap<FString, FString> BoneParentMap;
+
+	for (const FBridgeBoneData& Bone : Skeleton.Bones)
+	{
+		if (Bone.Id.IsEmpty() || !IsValidBoneId(Bone.Id))
+		{
+			OutReport.AddError(
+				TEXT("BONE_INVALID_ID_FORMAT"),
+				FString::Printf(TEXT("Skeleton '%s' bone '%s' has invalid ID '%s'"), *Skeleton.Id, *Bone.Name, *Bone.Id),
+				Bone.Id);
+			bValid = false;
+		}
+
+		if (SeenBoneIds.Contains(Bone.Id))
+		{
+			OutReport.AddError(
+				TEXT("BONE_DUPLICATE_ID"),
+				FString::Printf(TEXT("Duplicate bone ID '%s' in skeleton '%s'"), *Bone.Id, *Skeleton.Id),
+				Bone.Id);
+			bValid = false;
+		}
+		SeenBoneIds.Add(Bone.Id);
+
+		if (SeenBoneNames.Contains(Bone.Name))
+		{
+			OutReport.AddError(
+				TEXT("BONE_DUPLICATE_NAME"),
+				FString::Printf(TEXT("Duplicate bone name '%s' in skeleton '%s'"), *Bone.Name, *Skeleton.Id),
+				Bone.Id);
+			bValid = false;
+		}
+		SeenBoneNames.Add(Bone.Name);
+
+		BoneParentMap.Add(Bone.Id, Bone.ParentId);
+
+		// Transform finite numeric validation
+		const FBridgeCanonicalTransform& Xform = Bone.RestTransform;
+		if (!FMath::IsFinite(Xform.Location.X) || !FMath::IsFinite(Xform.Location.Y) || !FMath::IsFinite(Xform.Location.Z) ||
+			!FMath::IsFinite(Xform.RotationQuaternion.X) || !FMath::IsFinite(Xform.RotationQuaternion.Y) ||
+			!FMath::IsFinite(Xform.RotationQuaternion.Z) || !FMath::IsFinite(Xform.RotationQuaternion.W) ||
+			!FMath::IsFinite(Xform.Scale.X) || !FMath::IsFinite(Xform.Scale.Y) || !FMath::IsFinite(Xform.Scale.Z))
+		{
+			OutReport.AddError(
+				TEXT("TRANSFORM_NON_FINITE_LOCATION"),
+				FString::Printf(TEXT("Bone '%s' (%s) contains non-finite transform values"), *Bone.Name, *Bone.Id),
+				Bone.Id);
+			bValid = false;
+		}
+	}
+
+	// Bone parent integrity & cycles
+	for (const auto& Pair : BoneParentMap)
+	{
+		const FString& BId = Pair.Key;
+		const FString& PId = Pair.Value;
+
+		if (!PId.IsEmpty())
+		{
+			if (PId == BId)
+			{
+				OutReport.AddError(
+					TEXT("BONE_SELF_PARENT"),
+					FString::Printf(TEXT("Bone '%s' references itself as parent"), *BId),
+					BId);
+				bValid = false;
+			}
+			else if (!SeenBoneIds.Contains(PId))
+			{
+				OutReport.AddError(
+					TEXT("BONE_BROKEN_PARENT_REF"),
+					FString::Printf(TEXT("Bone '%s' references non-existent parent '%s'"), *BId, *PId),
+					BId);
+				bValid = false;
+			}
+		}
+	}
+
+	// Cycle detection
+	for (const FString& StartId : SeenBoneIds)
+	{
+		TSet<FString> Visited;
+		FString Curr = StartId;
+		while (!Curr.IsEmpty())
+		{
+			if (Visited.Contains(Curr))
+			{
+				OutReport.AddError(
+					TEXT("BONE_HIERARCHY_CYCLE"),
+					FString::Printf(TEXT("Bone hierarchy cycle detected involving '%s' in skeleton '%s'"), *Curr, *Skeleton.Id),
+					Curr);
+				bValid = false;
+				break;
+			}
+			Visited.Add(Curr);
+			const FString* NextParent = BoneParentMap.Find(Curr);
+			Curr = (NextParent && !NextParent->IsEmpty()) ? *NextParent : TEXT("");
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateAnimationClip(
+	const FBridgeAnimationClip& Clip,
+	const TMap<FString, FBridgeSkeletonData>& Skeletons,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	if (Clip.Id.IsEmpty() || !IsValidAnimationId(Clip.Id))
+	{
+		OutReport.AddError(
+			TEXT("ANIMATION_INVALID_ID_FORMAT"),
+			FString::Printf(TEXT("Animation '%s' has invalid ID format '%s'"), *Clip.Name, *Clip.Id),
+			Clip.Id);
+		bValid = false;
+	}
+
+	if (!Skeletons.Contains(Clip.SkeletonId))
+	{
+		OutReport.AddError(
+			TEXT("ANIMATION_BROKEN_SKELETON_REF"),
+			FString::Printf(TEXT("Animation '%s' references non-existent skeleton '%s'"), *Clip.Id, *Clip.SkeletonId),
+			Clip.Id);
+		bValid = false;
+	}
+
+	if (Clip.StartFrame > Clip.EndFrame)
+	{
+		OutReport.AddError(
+			TEXT("ANIMATION_INVALID_FRAME_RANGE"),
+			FString::Printf(TEXT("Animation '%s' has invalid frame range [%f, %f]"), *Clip.Id, Clip.StartFrame, Clip.EndFrame),
+			Clip.Id);
+		bValid = false;
+	}
+
+	if (!FMath::IsFinite(Clip.FrameRate) || Clip.FrameRate <= 0.0f)
+	{
+		OutReport.AddError(
+			TEXT("ANIMATION_INVALID_FRAME_RATE"),
+			FString::Printf(TEXT("Animation '%s' has invalid frame rate %f"), *Clip.Id, Clip.FrameRate),
+			Clip.Id);
+		bValid = false;
+	}
+
+	if (!FMath::IsFinite(Clip.Duration) || Clip.Duration < 0.0f)
+	{
+		OutReport.AddError(
+			TEXT("ANIMATION_INVALID_DURATION"),
+			FString::Printf(TEXT("Animation '%s' has invalid duration %f"), *Clip.Id, Clip.Duration),
+			Clip.Id);
+		bValid = false;
+	}
+
+	const FBridgeSkeletonData* Skel = Skeletons.Find(Clip.SkeletonId);
+	for (const FBridgeBoneAnimationTrack& Track : Clip.Tracks)
+	{
+		if (Skel && !Skel->FindBoneById(Track.BoneId))
+		{
+			OutReport.AddError(
+				TEXT("ANIMATION_BROKEN_BONE_REF"),
+				FString::Printf(TEXT("Animation '%s' track references non-existent bone '%s'"), *Clip.Id, *Track.BoneId),
+				Clip.Id);
+			bValid = false;
+		}
+
+		// Check location keys sorting & finite
+		float LastTime = -1.0f;
+		for (const FBridgeVectorKeyframe& K : Track.LocationKeys)
+		{
+			if (!FMath::IsFinite(K.Time) || K.Time < LastTime)
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_UNSORTED_KEYFRAMES"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'location' keyframes not strictly sorted"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+			LastTime = K.Time;
+			if (!FMath::IsFinite(K.Value.X) || !FMath::IsFinite(K.Value.Y) || !FMath::IsFinite(K.Value.Z))
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_NON_FINITE_VALUE"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'location' has non-finite value"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+		}
+
+		// Check rotation keys sorting & finite
+		LastTime = -1.0f;
+		for (const FBridgeQuatKeyframe& K : Track.RotationKeys)
+		{
+			if (!FMath::IsFinite(K.Time) || K.Time < LastTime)
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_UNSORTED_KEYFRAMES"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'rotation' keyframes not strictly sorted"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+			LastTime = K.Time;
+			if (!FMath::IsFinite(K.Value.X) || !FMath::IsFinite(K.Value.Y) || !FMath::IsFinite(K.Value.Z) || !FMath::IsFinite(K.Value.W))
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_NON_FINITE_VALUE"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'rotation' has non-finite value"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+		}
+
+		// Check scale keys sorting & finite
+		LastTime = -1.0f;
+		for (const FBridgeVectorKeyframe& K : Track.ScaleKeys)
+		{
+			if (!FMath::IsFinite(K.Time) || K.Time < LastTime)
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_UNSORTED_KEYFRAMES"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'scale' keyframes not strictly sorted"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+			LastTime = K.Time;
+			if (!FMath::IsFinite(K.Value.X) || !FMath::IsFinite(K.Value.Y) || !FMath::IsFinite(K.Value.Z))
+			{
+				OutReport.AddError(
+					TEXT("ANIMATION_NON_FINITE_VALUE"),
+					FString::Printf(TEXT("Animation '%s' bone '%s' channel 'scale' has non-finite value"), *Clip.Id, *Track.BoneId),
+					Clip.Id);
+				bValid = false;
+				break;
+			}
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateAnimations(
+	const TMap<FString, FBridgeSkeletonData>& Skeletons,
+	const TMap<FString, FBridgeAnimationClip>& Animations,
+	const TMap<FString, FBridgeMeshData>& Meshes,
+	const TArray<FBridgeObject>& Objects,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	for (const auto& Pair : Skeletons)
+	{
+		bValid &= ValidateSkeleton(Pair.Value, OutReport);
+	}
+
+	for (const auto& Pair : Animations)
+	{
+		bValid &= ValidateAnimationClip(Pair.Value, Skeletons, OutReport);
+	}
+
+	// Cross-validation: mesh skinning skeleton ref & bone refs
+	for (const auto& Pair : Meshes)
+	{
+		const FBridgeMeshData& Mesh = Pair.Value;
+		if (Mesh.bHasSkinning)
+		{
+			const FBridgeSkeletonData* Skel = Skeletons.Find(Mesh.Skinning.SkeletonId);
+			if (!Skel)
+			{
+				OutReport.AddError(
+					TEXT("SKIN_BROKEN_SKELETON_REF"),
+					FString::Printf(TEXT("Mesh '%s' references non-existent skeleton '%s'"), *Mesh.MeshId, *Mesh.Skinning.SkeletonId),
+					Mesh.MeshId);
+				bValid = false;
+			}
+			else
+			{
+				for (int32 v = 0; v < Mesh.Skinning.Weights.Num(); ++v)
+				{
+					for (const FBridgeVertexBoneWeight& Inf : Mesh.Skinning.Weights[v].Influences)
+					{
+						if (!Inf.BoneId.IsEmpty() && !Skel->FindBoneById(Inf.BoneId))
+						{
+							OutReport.AddError(
+								TEXT("SKIN_BROKEN_BONE_REF"),
+								FString::Printf(TEXT("Mesh '%s' vertex %d references non-existent bone '%s'"), *Mesh.MeshId, v, *Inf.BoneId),
+								Mesh.MeshId);
+							bValid = false;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Cross-validation: object skeleton ref
+	for (const FBridgeObject& Obj : Objects)
+	{
+		if (!Obj.SkeletonId.IsEmpty() && !Skeletons.Contains(Obj.SkeletonId))
+		{
+			OutReport.AddError(
+				TEXT("OBJECT_BROKEN_SKELETON_REF"),
+				FString::Printf(TEXT("Object '%s' references non-existent skeleton '%s'"), *Obj.Name, *Obj.SkeletonId),
+				Obj.Id);
+			bValid = false;
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::IsValidSkeletonId(const FString& Id)
+{
+	// Expected format: "skel_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("skel_")) || Id.Len() < 13)
+	{
+		return false;
+	}
+
+	for (int32 i = 5; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageValidator::IsValidBoneId(const FString& Id)
+{
+	// Expected format: "bone_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("bone_")) || Id.Len() < 13)
+	{
+		return false;
+	}
+
+	for (int32 i = 5; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageValidator::IsValidAnimationId(const FString& Id)
+{
+	// Expected format: "anim_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("anim_")) || Id.Len() < 13)
+	{
+		return false;
+	}
+
+	for (int32 i = 5; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 

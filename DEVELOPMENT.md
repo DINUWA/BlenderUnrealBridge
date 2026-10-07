@@ -29,8 +29,8 @@ Development is organized sequentially into discrete milestones. Each milestone m
 | **Milestone 6** | **PBR Material Translator** | Semantic Materials | Principled BSDF analyzer, fallback handling, Unreal dynamic material builder. | ✅ Complete |
 | **Milestone 7** | **Textures & UVs** | Texture Pipeline | Image discovery, path resolution, sRGB/Linear validation, packing, UV slot assignment. | ✅ Complete |
 | **Milestone 8** | **Hierarchy & Validation** | Outliner & Verification | Full parent-child hierarchy reconstruction, collection folders, error reporting. | ✅ Complete |
-| **Milestone 9** | **Animation Pipeline** | Skeletal & Keyframe Data | Skeletal mesh export, skinning weights, bone hierarchies, animation clips. | ⏳ Next |
-| **Milestone 10** | **Live Synchronization** | Real-Time Sync Layer | Socket/IPC delta transport, transform sync, live editing in Blender reflected in Unreal. | ⏳ Planned |
+| **Milestone 9** | **Animation Pipeline** | Skeletal & Keyframe Data | Skeletal mesh export, skinning weights, bone hierarchies, animation clips. | ✅ Complete |
+| **Milestone 10** | **Live Synchronization** | Real-Time Sync Layer | Socket/IPC delta transport, transform sync, live editing in Blender reflected in Unreal. | ⏳ Next |
 
 ---
 

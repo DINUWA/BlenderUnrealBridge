@@ -17,17 +17,20 @@ A `.bubridge` package is structured as follows:
 ├── manifest.json       # Required: Format, version, units, coordinate metadata
 ├── scene.json          # Required: Scene hierarchy, collections, global settings
 ├── objects.json        # Required: Object nodes, stable IDs, transforms, references
-├── materials.json      # Optional/MVP: Semantic PBR material definitions
-├── textures.json       # Optional/MVP: Texture metadata and color space information
-├── animations.json     # Reserved for Milestone 8
+├── textures.json       # Optional: Texture metadata and color space information
+├── animations.json     # Optional: Skeletal animations and bone hierarchies (Milestone 9)
 │
-├── meshes/             # Binary mesh assets (.glb or raw buffers)
-│   ├── mesh_001.glb
-│   └── mesh_002.glb
+├── materials/          # Atomic semantic PBR material definitions (mat_<hex>.json)
+│   ├── mat_00000001.json
+│   └── mat_00000002.json
 │
-├── textures/           # Texture image files (PNG, JPG, TGA, EXR)
-│   ├── tex_001.png
-│   └── tex_002.png
+├── meshes/             # Canonical mesh geometry payloads (mesh_<hex>.json)
+│   ├── mesh_00000001.json
+│   └── mesh_00000002.json
+│
+├── textures/           # Texture image files (PNG, JPG, TGA)
+│   ├── tex_00000001.png
+│   └── tex_00000002.png
 │
 └── metadata/           # Diagnostic and validation reports
     └── report.json     # Export log, warnings, and summary
@@ -90,7 +93,9 @@ The entry point of any Bridge package. The importer **must** parse and validate 
     "object_count": 5,
     "mesh_count": 3,
     "material_count": 4,
-    "texture_count": 6
+    "texture_count": 6,
+    "skeleton_count": 1,
+    "animation_count": 2
   }
 }
 ```
@@ -201,6 +206,8 @@ Defines all scene entities, their transforms, hierarchy, mesh references, and ma
 
 #### Object Types:
 * `STATIC_MESH`: Standard polygonal mesh.
+* `SKELETAL_MESH`: Deformed polygonal mesh bound to an armature (`skeleton_id`, skinning weights).
+* `ARMATURE`: Skeletal hierarchy root object referencing a skeleton (`skeleton_id`).
 * `EMPTY`: Transform-only node (Null/Locator) used for hierarchical grouping.
 * `LIGHT`: (Future) Directional, point, or spot light.
 * `CAMERA`: (Future) Perspective or orthographic camera.
@@ -273,9 +280,30 @@ Captures extracted static mesh geometry converted into Canonical Bridge coordina
       "slot_name": "M_Default",
       "material_id": null
     }
-  ]
+  ],
+  "skinning": {
+    "skeleton_id": "skel_a1b2c3d4",
+    "vertex_weights": [
+      [
+        {
+          "bone_id": "bone_00000001",
+          "weight": 0.8
+        },
+        {
+          "bone_id": "bone_00000002",
+          "weight": 0.2
+        }
+      ]
+    ]
+  }
 }
 ```
+
+#### Skinning Specification (Milestone 9):
+* `skinning`: Optional object present when the mesh is bound to an armature.
+  * `skeleton_id`: Stable Bridge Skeleton ID (`skel_<8 hex chars>`).
+  * `vertex_weights`: Array with length matching `vertex_count`. Each entry is a list of bone influences `{"bone_id": string, "weight": float}`.
+  * Clamped to a maximum of 8 bone influences per vertex, sorted in descending order of weight, with weights normalized to sum to 1.0.
 
 ---
 
@@ -365,6 +393,136 @@ Tracks image textures required by materials, including package-relative file pat
   ]
 }
 ```
+
+---
+
+### 4.7 `animations.json` (Milestone 9 Specification)
+
+Defines skeletal hierarchies (`skeletons`) and sampled bone animation clips (`animations`) adhering to `BUBRIDGE_ANIMATIONS` v0.1.0 in canonical coordinates.
+
+* **Format**: `BUBRIDGE_ANIMATIONS`
+* **Version**: `0.1.0`
+* **Skeleton ID format**: `skel_<8 hex chars>` (e.g. `skel_a1b2c3d4`), persistent on Blender armature datablocks.
+* **Bone ID format**: `bone_<8 hex chars>` (e.g. `bone_00000001`), persistent per bone.
+* **Animation ID format**: `anim_<8 hex chars>` (e.g. `anim_e5f6a7b8`), persistent per Blender action.
+* **Coordinate space**: Canonical Left-Handed Z-up centimeters.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_ANIMATIONS",
+  "version": "0.1.0",
+  "skeletons": [
+    {
+      "skeleton_id": "skel_a1b2c3d4",
+      "name": "Armature",
+      "bones": [
+        {
+          "bone_id": "bone_00000001",
+          "name": "Root",
+          "parent_bone_id": null,
+          "rest_transform": {
+            "location": [0.0, 0.0, 0.0],
+            "rotation_euler": [0.0, 0.0, 0.0],
+            "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "rotation_mode": "QUATERNION",
+            "scale": [1.0, 1.0, 1.0],
+            "origin_offset": [0.0, 0.0, 0.0]
+          },
+          "length": 100.0
+        },
+        {
+          "bone_id": "bone_00000002",
+          "name": "Spine",
+          "parent_bone_id": "bone_00000001",
+          "rest_transform": {
+            "location": [0.0, 0.0, 100.0],
+            "rotation_euler": [0.0, 0.0, 0.0],
+            "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+            "rotation_mode": "QUATERNION",
+            "scale": [1.0, 1.0, 1.0],
+            "origin_offset": [0.0, 0.0, 0.0]
+          },
+          "length": 80.0
+        }
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "animation_id": "anim_e5f6a7b8",
+      "name": "Walk",
+      "skeleton_id": "skel_a1b2c3d4",
+      "frame_rate": 30.0,
+      "frame_start": 1,
+      "frame_end": 30,
+      "duration": 0.9667,
+      "tracks": [
+        {
+          "bone_id": "bone_00000001",
+          "bone_name": "Root",
+          "location_keyframes": [
+            {
+              "frame": 1,
+              "time": 0.0,
+              "value": [0.0, 0.0, 0.0]
+            },
+            {
+              "frame": 30,
+              "time": 0.9667,
+              "value": [50.0, 0.0, 0.0]
+            }
+          ],
+          "rotation_keyframes": [
+            {
+              "frame": 1,
+              "time": 0.0,
+              "value": [0.0, 0.0, 0.0, 1.0]
+            },
+            {
+              "frame": 30,
+              "time": 0.9667,
+              "value": [0.0, 0.0, 0.0, 1.0]
+            }
+          ],
+          "scale_keyframes": [
+            {
+              "frame": 1,
+              "time": 0.0,
+              "value": [1.0, 1.0, 1.0]
+            },
+            {
+              "frame": 30,
+              "time": 0.9667,
+              "value": [1.0, 1.0, 1.0]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Skeleton & Bone Specifications:
+* `skeletons`: List of armature hierarchies.
+  * `skeleton_id`: Unique identifier formatted as `skel_<8 hex chars>`.
+  * `bones`: Array of bones topologically ordered (parents appear before children).
+    * `bone_id`: Unique identifier formatted as `bone_<8 hex chars>`.
+    * `parent_bone_id`: Reference to parent `bone_id` or `null` for root bones.
+    * `rest_transform`: Local rest pose transform relative to parent bone.
+    * `length`: Bone length in canonical centimeter units.
+
+#### Animation Clip Specifications:
+* `animations`: List of action animation clips.
+  * `animation_id`: Unique identifier formatted as `anim_<8 hex chars>`.
+  * `skeleton_id`: Target skeleton identifier (`skel_<hex>`).
+  * `frame_rate`: Evaluation frame rate (fps).
+  * `tracks`: Per-bone animation tracks.
+    * `location_keyframes`: Sampled local translation vector `[x, y, z]` in cm.
+    * `rotation_keyframes`: Sampled local rotation quaternion `[x, y, z, w]`.
+    * `scale_keyframes`: Sampled local scale vector `[x, y, z]`.
+    * Keyframe times are monotonic and non-decreasing.
 
 ---
 

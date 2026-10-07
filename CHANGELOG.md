@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 9] - 2026-10-08
+
+### Added
+- `blender_addon/blender_unreal_bridge/collectors/id_generator.py`:
+  - Added ID generation and persistence for skeletons (`ensure_skeleton_id()`, `get_skeleton_id()`), bones (`ensure_bone_id()`, `get_bone_id()`), and animations (`ensure_animation_id()`, `get_animation_id()`).
+  - Uses dedicated custom property keys (`bubridge_skeleton_id`, `bubridge_bone_id`, `bubridge_animation_id`) to avoid collision with object IDs.
+- `blender_addon/blender_unreal_bridge/collectors/scene_collector.py`:
+  - Added `"ARMATURE"` to `SUPPORTED_OBJECT_TYPES`.
+- `blender_addon/blender_unreal_bridge/animation/armature_extractor.py`:
+  - Implemented `extract_skeleton_data()` to extract bone hierarchy, rest transforms in canonical coordinates (+Z Up, +X Forward, +Y Right, cm), and topological bone order.
+- `blender_addon/blender_unreal_bridge/animation/skinning_extractor.py`:
+  - Implemented `extract_skinning_data()` to map vertex groups to bone IDs, sort influences descending, clamp to max 8 influences, and re-normalize weights to 1.0.
+- `blender_addon/blender_unreal_bridge/animation/animation_extractor.py`:
+  - Implemented `extract_animations_for_armature()` non-destructively sampling Actions at integer frames and serializing keyframes in canonical coordinates.
+- `blender_addon/blender_unreal_bridge/geometry/mesh_extractor.py`:
+  - Added skinning data extraction to `BUBRIDGE_MESH` payload under `payload["skinning"]`.
+- `blender_addon/blender_unreal_bridge/serialization/package_writer.py`:
+  - Serialized `animations.json` (`BUBRIDGE_ANIMATIONS` v0.1.0) and populated `skeleton_count` and `animation_count` in manifest.
+  - Tagged mesh objects with armature parent as `SKELETAL_MESH` and armature objects as `ARMATURE`.
+- `blender_addon/blender_unreal_bridge/serialization/package_validator.py`:
+  - Added validation for skeletons, bones, bone parents, bone cycles, skinning weights, and keyframe monotonic ordering.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h`:
+  - Added `FBridgeVertexBoneWeight`, `FBridgeVertexSkinning`, `FBridgeSkinningData`.
+  - Added `FBridgeBoneData`, `FBridgeSkeletonData`.
+  - Added `FBridgeVectorKeyframe`, `FBridgeQuatKeyframe`, `FBridgeBoneAnimationTrack`, `FBridgeAnimationClip`.
+  - Extended `FBridgeContentSummary` (`SkeletonCount`, `AnimationCount`), `FBridgeMeshData` (`bHasSkinning`, `Skinning`), `FBridgeObject` (`SkeletonId`), `FBridgePackageData` (`Skeletons`, `Animations`).
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageReader.h` & `Private/Reader/BridgePackageReader.cpp`:
+  - Implemented `ParseSkeleton()`, `ParseAnimationClip()`, and `LoadAnimations()`.
+  - Extended `ParseMesh()` for skinning, updated `ParseObjects()` and `LoadMeshes()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageValidator.h` & `Private/Reader/BridgePackageValidator.cpp`:
+  - Implemented `ValidateSkeleton()`, `ValidateAnimationClip()`, `ValidateAnimations()`.
+  - Implemented ID format validators: `IsValidSkeletonId()`, `IsValidBoneId()`, `IsValidAnimationId()`.
+  - Added skinning validation to `ValidateMesh()` and cross-validation for `SkeletonId`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Animation/BridgeAnimationBuilder.h` & `Private/Animation/BridgeAnimationBuilder.cpp`:
+  - Created `BuildSkeletonRestPose()`, `SampleBoneTrack()` (lerp location/scale, slerp quaternion rotation), and `EvaluatePoseAtTime()`.
+- `scripts/generate_test_fixtures.py`:
+  - Added deterministic test fixtures 37 through 44 covering valid skeletons, skinned meshes, invalid IDs, self-parent bones, bone cycles, broken bone references, unsorted keyframes, and broken skeleton references.
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Expanded test suite to 77 tests including test cases for fixtures 37–44 and `TestMilestone9AnimationValidation`.
+- `blender_addon/tests/test_animation.py`:
+  - 5 Blender headless unit tests covering animation ID generation, armature rest poses, skinning weights, Action extraction, and full package build.
+
+### Verification
+- Blender unit tests: 136/136 passed.
+- Unreal engine-independent tests: 77/77 passed.
+- Bridge Core C++ tests: 1/1 passed.
+- Unreal Engine 5.8 UBT compilation: 0 errors, 0 warnings (`UnrealEditor-BlenderUnrealBridge.dll` built).
+
 ## [Milestone 8] - 2026-10-07
 
 ### Added
