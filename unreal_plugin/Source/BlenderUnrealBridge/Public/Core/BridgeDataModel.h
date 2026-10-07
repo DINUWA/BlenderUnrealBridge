@@ -198,8 +198,24 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 };
 
 /**
+ * Canonical Bridge texture metadata from textures.json conforming to DATA_PROTOCOL.md §4.6.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeTextureData
+{
+	FString Id;
+	FString Name;
+	FString RelativePath;
+	FString Format;
+	FString ColorSpace = TEXT("sRGB");
+	FIntPoint Dimensions = FIntPoint(1, 1);
+	int32 Channels = 4;
+	bool bHasAlpha = false;
+	FString CompressionSettings = TEXT("TC_Default");
+};
+
+/**
  * Canonical Bridge PBR material representation from materials/<material_id>.json.
- * Strictly non-textured scalar/color properties for Milestone 6.
+ * Supports scalar/color properties and Milestone 7 texture references.
  */
 struct BLENDERUNREALBRIDGE_API FBridgeMaterialData
 {
@@ -217,6 +233,9 @@ struct BLENDERUNREALBRIDGE_API FBridgeMaterialData
 	float Opacity = 1.0f;
 	FString BlendMode = TEXT("OPAQUE");
 	bool bTwoSided = false;
+
+	/** Semantic channel name ('base_color', 'roughness', etc.) -> Texture ID */
+	TMap<FString, FString> Textures;
 };
 
 /**
@@ -230,6 +249,7 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	TArray<FBridgeObject> Objects;
 	TMap<FString, FBridgeMeshData> Meshes;
 	TMap<FString, FBridgeMaterialData> Materials;
+	TMap<FString, FBridgeTextureData> Textures;
 
 	/** Fast lookup index mapping Bridge ID -> Object index in Objects array */
 	TMap<FString, int32> IdToIndexMap;
@@ -252,6 +272,11 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	const FBridgeMaterialData* FindMaterialById(const FString& InMaterialId) const
 	{
 		return Materials.Find(InMaterialId);
+	}
+
+	const FBridgeTextureData* FindTextureById(const FString& InTextureId) const
+	{
+		return Textures.Find(InTextureId);
 	}
 
 	void RebuildIdMap()

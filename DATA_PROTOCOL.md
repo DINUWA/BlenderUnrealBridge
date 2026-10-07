@@ -309,6 +309,10 @@ Captures semantic PBR material parameters extracted from Blender shader graphs (
     "opacity": 1.0,
     "blend_mode": "OPAQUE",
     "two_sided": false
+  },
+  "textures": {
+    "base_color": "tex_roof_diff",
+    "normal": "tex_roof_norm"
   }
 }
 ```
@@ -322,15 +326,19 @@ Captures semantic PBR material parameters extracted from Blender shader graphs (
 * `opacity`: Float normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Alpha" socket.
 * `blend_mode`: String enum (`OPAQUE`, `TRANSLUCENT`). Defaults to `OPAQUE` when opacity $\ge 0.999$.
 * `two_sided`: Boolean flag indicating double-sided rendering. Defaults to `false` (single-sided standard).
+* `textures`: Optional map of semantic channel names (`base_color`, `roughness`, `metallic`, `normal`) to stable Bridge Texture IDs (`tex_<hex>`). Fallback constant scalar and color properties remain active for untextured channels or fallback display.
 
 ---
 
-### 4.6 `textures.json` (Future Milestone)
+### 4.6 `textures.json` (Milestone 7 Specification)
 
-Tracks image textures required by materials, including file paths and color space requirements.
+Tracks image textures required by materials, including package-relative file paths, dimensions, channels, and color space / compression configurations.
 
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_TEXTURES",
+  "version": "0.1.0",
   "textures": [
     {
       "id": "tex_roof_diff",

@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 7] - 2026-10-07
+
+### Added
+- `blender_addon/blender_unreal_bridge/collectors/id_generator.py`:
+  - Added `_generate_texture_id()`, `ensure_texture_id()`, `get_texture_id()`, and `has_texture_id()` to generate and maintain stable `tex_<8 hex chars>` on `bpy.types.Image` datablocks.
+- `blender_addon/blender_unreal_bridge/materials/texture_extractor.py`:
+  - Implemented semantic texture discovery and extraction supporting Base Color, Roughness, Metallic, and Normal Map channels.
+  - Added support for direct socket links, reroute nodes, and `ShaderNodeNormalMap` connections.
+  - Image path resolution supporting relative (`//`), absolute paths, and embedded packed images (`image.packed_file.data`).
+  - Color space validation (`sRGB` for Base Color, `Linear`/`Non-Color` for Roughness, Metallic, Normal), emitting structured `TEX_COLORSPACE_MISMATCH` diagnostics.
+  - Image metadata extraction: dimensions, channels, alpha channel detection, format detection, and compression setting mapping (`TC_Default` vs `TC_Normalmap`).
+- `blender_addon/blender_unreal_bridge/materials/material_extractor.py`:
+  - Updated `extract_material_data()` to trace connected textures and populate the canonical `"textures"` map (`{"base_color": "tex_...", ...}`) while preserving all constant fallback PBR values.
+- `blender_addon/blender_unreal_bridge/serialization/package_writer.py`:
+  - Collected unique textures during scene traversal and serialized `textures.json` conforming to `BUBRIDGE_TEXTURES` v0.1.0.
+  - Implemented atomic extraction/copying of texture files into `<package>/textures/<tex_id>.<ext>`.
+  - Populated `manifest.content_summary.texture_count`.
+- `blender_addon/blender_unreal_bridge/serialization/package_validator.py`:
+  - Added `TEXTURE_ID_PATTERN` (`^tex_[0-9a-f]{8,16}$`).
+  - Added `validate_texture()` verifying ID format, relative path, dimensions, channels, and color space.
+  - Enforced referential integrity between material texture references and the texture catalog (`MATERIAL_BROKEN_TEXTURE_REF`).
+- `blender_addon/tests/test_texture_extractor.py`:
+  - 10 unit and integration tests covering stable texture IDs, Base Color discovery, Normal Map nodes, Roughness/Metallic linear textures, missing files, packed images, deduplication, packaging, and M6 constant fallback regression.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h`:
+  - Added `FBridgeTextureData` struct.
+  - Extended `FBridgeMaterialData` with `Textures` map (`TMap<FString, FString>`).
+  - Extended `FBridgePackageData` with `Textures` map (`TMap<FString, FBridgeTextureData>`) and `FindTextureById()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageReader.h` & `Private/Reader/BridgePackageReader.cpp`:
+  - Implemented `ParseTexture()` and `LoadTextures()` parsing `textures.json`.
+  - Hooked texture loading into `LoadPackage()` and parsed `"textures"` field in `ParseMaterial()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageValidator.h` & `Private/Reader/BridgePackageValidator.cpp`:
+  - Implemented `IsValidTextureId()`, `ValidateTexture()`, and `ValidateTextures()`.
+  - Hooked texture schema, on-disk file existence (`TEX_FILE_NOT_FOUND`), and material texture reference validation (`MATERIAL_BROKEN_TEXTURE_REF`) into `ValidatePackage()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Material/BridgeMaterialBuilder.h` & `Private/Material/BridgeMaterialBuilder.cpp`:
+  - Extended dynamic material creation to import textures on demand via `FImageUtils::ImportFileAsTexture2D()`.
+  - Configured sRGB and `TC_Normalmap` compression settings.
+  - Implemented per-package texture caching to ensure deduplicated texture loading across materials.
+  - Bound imported textures to dynamic material parameters (`BaseColorTexture`, `RoughnessTexture`, `MetallicTexture`, `NormalTexture`).
+- `scripts/generate_test_fixtures.py`:
+  - Extended fixture generator with texture payloads and automatic 1x1 valid PNG generation.
+  - Added test fixtures 22 (`22_texture_payload`), 23 (`23_textured_material_payload`), 24 (`24_multi_texture_material`), 25 (`25_missing_texture_reference`), 26 (`26_missing_texture_file`), 27 (`27_invalid_texture_schema`), and 28 (`28_shared_texture_payload`).
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Expanded engine-independent test suite to 51 tests with validation coverage for fixtures 22-28 and dedicated `TestMilestone7TextureValidation`.
+- `DATA_PROTOCOL.md`:
+  - Formalized material `"textures"` map and `textures.json` schema specification.
+
+### Verification
+- Blender unit tests: 123/123 passed.
+- Unreal engine-independent tests: 51/51 passed.
+- Bridge Core C++ tests: 1/1 passed.
+- Unreal Engine 5.8 UBT compilation: 0 errors, 0 warnings (`UnrealEditor-BlenderUnrealBridge.dll` built).
+
 ## [Milestone 6] - 2026-10-07
 
 ### Added

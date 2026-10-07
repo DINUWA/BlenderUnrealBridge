@@ -5,6 +5,7 @@ Generates the 13 minimal deterministic .bubridge test fixtures required for
 Milestone 4 Unreal package reader validation.
 """
 
+import base64
 import json
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ import shutil
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "test_assets" / "fixtures"
 
 FIXED_TIMESTAMP = "2026-10-05T12:00:00Z"
+MINIMAL_PNG_BYTES = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 
 BASE_MANIFEST = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -69,7 +71,16 @@ IDENTITY_XFORM = {
 }
 
 
-def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes: dict = None, materials: dict = None):
+def write_fixture(
+    name: str,
+    manifest: dict,
+    scene: dict,
+    objects: list,
+    meshes: dict = None,
+    materials: dict = None,
+    textures: list = None,
+    skip_texture_files: set = None
+):
     pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
     if pkg_dir.exists():
         shutil.rmtree(pkg_dir)
@@ -84,6 +95,7 @@ def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes:
     manifest_copy["content_summary"]["object_count"] = len(objects)
     manifest_copy["content_summary"]["mesh_count"] = len(meshes) if meshes else 0
     manifest_copy["content_summary"]["material_count"] = len(materials) if materials else 0
+    manifest_copy["content_summary"]["texture_count"] = len(textures) if textures else 0
 
     (pkg_dir / "manifest.json").write_text(json.dumps(manifest_copy, indent=2), encoding="utf-8")
     (pkg_dir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
@@ -96,6 +108,26 @@ def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes:
     if materials:
         for mat_id, mat_data in materials.items():
             (pkg_dir / "materials" / f"{mat_id}.json").write_text(json.dumps(mat_data, indent=2), encoding="utf-8")
+
+    if textures is not None:
+        textures_doc = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_TEXTURES",
+            "version": "0.1.0",
+            "textures": textures
+        }
+        (pkg_dir / "textures.json").write_text(json.dumps(textures_doc, indent=2), encoding="utf-8")
+
+        skip_set = skip_texture_files or set()
+        for tex in textures:
+            tex_id = tex.get("id")
+            if tex_id in skip_set:
+                continue
+            rel_path = tex.get("relative_path")
+            if rel_path:
+                tfile = pkg_dir / rel_path
+                tfile.parent.mkdir(parents=True, exist_ok=True)
+                tfile.write_bytes(MINIMAL_PNG_BYTES)
 
     report = {
         "timestamp": FIXED_TIMESTAMP,
@@ -866,7 +898,580 @@ def generate_all_fixtures():
         materials={"invalid_id_not_mat": invalid_schema_mat}
     )
 
-    print(f"Generated 21 test fixtures in {FIXTURES_DIR}")
+    # 22. Texture Payload (Valid texture metadata and file)
+    tex_01 = {
+        "id": "tex_00000001",
+        "name": "T_Albedo",
+        "relative_path": "textures/tex_00000001.png",
+        "format": "PNG",
+        "color_space": "sRGB",
+        "dimensions": [1, 1],
+        "channels": 4,
+        "has_alpha": True,
+        "compression_settings": "TC_Default"
+    }
+
+    mat_tex_valid = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000004",
+        "name": "M_TexturedValid",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.8, 0.8, 0.8, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.5,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_00000001"
+        }
+    }
+
+    mesh_tex_01 = dict(valid_mesh)
+    mesh_tex_01["mesh_id"] = "mesh_00000008"
+    mesh_tex_01["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_TexturedValid",
+            "material_id": "mat_00000004"
+        }
+    ]
+
+    write_fixture(
+        "22_texture_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000020",
+            "name": "TexturedObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000008",
+                "file": "meshes/mesh_00000008.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_TexturedValid",
+                    "material_id": "mat_00000004"
+                }
+            ]
+        }],
+        meshes={"mesh_00000008": mesh_tex_01},
+        materials={"mat_00000004": mat_tex_valid},
+        textures=[tex_01]
+    )
+
+    # 23. Textured Material Payload (Wood Albedo)
+    tex_02 = {
+        "id": "tex_00000002",
+        "name": "T_WoodAlbedo",
+        "relative_path": "textures/tex_00000002.png",
+        "format": "PNG",
+        "color_space": "sRGB",
+        "dimensions": [1, 1],
+        "channels": 4,
+        "has_alpha": True,
+        "compression_settings": "TC_Default"
+    }
+
+    mat_wood = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000005",
+        "name": "M_WoodTextured",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.6, 0.4, 0.2, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.6,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_00000002"
+        }
+    }
+
+    mesh_tex_02 = dict(valid_mesh)
+    mesh_tex_02["mesh_id"] = "mesh_00000009"
+    mesh_tex_02["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_WoodTextured",
+            "material_id": "mat_00000005"
+        }
+    ]
+
+    write_fixture(
+        "23_textured_material_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000021",
+            "name": "WoodObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000009",
+                "file": "meshes/mesh_00000009.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_WoodTextured",
+                    "material_id": "mat_00000005"
+                }
+            ]
+        }],
+        meshes={"mesh_00000009": mesh_tex_02},
+        materials={"mat_00000005": mat_wood},
+        textures=[tex_02]
+    )
+
+    # 24. Multi Texture Material (Albedo, Roughness, Normal)
+    tex_03_bc = {
+        "id": "tex_00000003",
+        "name": "T_Multi_BC",
+        "relative_path": "textures/tex_00000003.png",
+        "format": "PNG",
+        "color_space": "sRGB",
+        "dimensions": [1, 1],
+        "channels": 4,
+        "has_alpha": True,
+        "compression_settings": "TC_Default"
+    }
+    tex_04_rough = {
+        "id": "tex_00000004",
+        "name": "T_Multi_Rough",
+        "relative_path": "textures/tex_00000004.png",
+        "format": "PNG",
+        "color_space": "Linear",
+        "dimensions": [1, 1],
+        "channels": 1,
+        "has_alpha": False,
+        "compression_settings": "TC_Default"
+    }
+    tex_05_norm = {
+        "id": "tex_00000005",
+        "name": "T_Multi_Norm",
+        "relative_path": "textures/tex_00000005.png",
+        "format": "PNG",
+        "color_space": "Linear",
+        "dimensions": [1, 1],
+        "channels": 3,
+        "has_alpha": False,
+        "compression_settings": "TC_Normalmap"
+    }
+
+    mat_multi_tex = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000006",
+        "name": "M_MultiTexture",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.7, 0.7, 0.7, 1.0],
+            "metallic": 0.2,
+            "roughness": 0.8,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_00000003",
+            "roughness": "tex_00000004",
+            "normal": "tex_00000005"
+        }
+    }
+
+    mesh_tex_multi = dict(valid_mesh)
+    mesh_tex_multi["mesh_id"] = "mesh_00000010"
+    mesh_tex_multi["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_MultiTexture",
+            "material_id": "mat_00000006"
+        }
+    ]
+
+    write_fixture(
+        "24_multi_texture_material",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000022",
+            "name": "MultiTextureObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000010",
+                "file": "meshes/mesh_00000010.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_MultiTexture",
+                    "material_id": "mat_00000006"
+                }
+            ]
+        }],
+        meshes={"mesh_00000010": mesh_tex_multi},
+        materials={"mat_00000006": mat_multi_tex},
+        textures=[tex_03_bc, tex_04_rough, tex_05_norm]
+    )
+
+    # 25. Missing Texture Reference (Material points to tex_99999999)
+    mat_missing_tex = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000007",
+        "name": "M_MissingTextureRef",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.5, 0.5, 0.5, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.5,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_99999999"
+        }
+    }
+
+    mesh_missing_tex = dict(valid_mesh)
+    mesh_missing_tex["mesh_id"] = "mesh_00000011"
+    mesh_missing_tex["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_MissingTextureRef",
+            "material_id": "mat_00000007"
+        }
+    ]
+
+    write_fixture(
+        "25_missing_texture_reference",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000023",
+            "name": "MissingTexRefObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000011",
+                "file": "meshes/mesh_00000011.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_MissingTextureRef",
+                    "material_id": "mat_00000007"
+                }
+            ]
+        }],
+        meshes={"mesh_00000011": mesh_missing_tex},
+        materials={"mat_00000007": mat_missing_tex},
+        textures=[]
+    )
+
+    # 26. Missing Texture File on Disk
+    tex_06_missing_file = {
+        "id": "tex_00000006",
+        "name": "T_MissingFile",
+        "relative_path": "textures/tex_00000006.png",
+        "format": "PNG",
+        "color_space": "sRGB",
+        "dimensions": [1, 1],
+        "channels": 4,
+        "has_alpha": True,
+        "compression_settings": "TC_Default"
+    }
+
+    mat_missing_file = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000008",
+        "name": "M_MissingTexFile",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.5, 0.5, 0.5, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.5,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_00000006"
+        }
+    }
+
+    mesh_missing_file = dict(valid_mesh)
+    mesh_missing_file["mesh_id"] = "mesh_00000012"
+    mesh_missing_file["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_MissingTexFile",
+            "material_id": "mat_00000008"
+        }
+    ]
+
+    write_fixture(
+        "26_missing_texture_file",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000024",
+            "name": "MissingTexFileObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000012",
+                "file": "meshes/mesh_00000012.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_MissingTexFile",
+                    "material_id": "mat_00000008"
+                }
+            ]
+        }],
+        meshes={"mesh_00000012": mesh_missing_file},
+        materials={"mat_00000008": mat_missing_file},
+        textures=[tex_06_missing_file],
+        skip_texture_files={"tex_00000006"}
+    )
+
+    # 27. Invalid Texture Schema (Malformed ID & bad color space)
+    tex_bad_schema = {
+        "id": "bad_tex_id",
+        "name": "T_BadSchema",
+        "relative_path": "textures/bad.png",
+        "format": "PNG",
+        "color_space": "INVALID_COLOR_SPACE",
+        "dimensions": [0, 0],
+        "channels": 5,
+        "has_alpha": False,
+        "compression_settings": "TC_Default"
+    }
+
+    mat_bad_tex = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000009",
+        "name": "M_BadTexSchema",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.5, 0.5, 0.5, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.5,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "bad_tex_id"
+        }
+    }
+
+    mesh_bad_tex = dict(valid_mesh)
+    mesh_bad_tex["mesh_id"] = "mesh_00000013"
+    mesh_bad_tex["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_BadTexSchema",
+            "material_id": "mat_00000009"
+        }
+    ]
+
+    write_fixture(
+        "27_invalid_texture_schema",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000025",
+            "name": "BadTexSchemaObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000013",
+                "file": "meshes/mesh_00000013.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_BadTexSchema",
+                    "material_id": "mat_00000009"
+                }
+            ]
+        }],
+        meshes={"mesh_00000013": mesh_bad_tex},
+        materials={"mat_00000009": mat_bad_tex},
+        textures=[tex_bad_schema]
+    )
+
+    # 28. Shared Texture Payload (Multiple materials sharing one texture)
+    tex_07_shared = {
+        "id": "tex_00000007",
+        "name": "T_SharedAlbedo",
+        "relative_path": "textures/tex_00000007.png",
+        "format": "PNG",
+        "color_space": "sRGB",
+        "dimensions": [1, 1],
+        "channels": 4,
+        "has_alpha": True,
+        "compression_settings": "TC_Default"
+    }
+
+    mat_shared_a = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_0000000a",
+        "name": "M_SharedMatA",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.8, 0.2, 0.2, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.3,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        },
+        "textures": {
+            "base_color": "tex_00000007"
+        }
+    }
+
+    mat_shared_b = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_0000000b",
+        "name": "M_SharedMatB",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.2, 0.8, 0.2, 1.0],
+            "metallic": 1.0,
+            "roughness": 0.7,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": True
+        },
+        "textures": {
+            "base_color": "tex_00000007"
+        }
+    }
+
+    mesh_shared = dict(valid_mesh)
+    mesh_shared["mesh_id"] = "mesh_00000014"
+    mesh_shared["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_SharedMatA",
+            "material_id": "mat_0000000a"
+        },
+        {
+            "slot_index": 1,
+            "slot_name": "M_SharedMatB",
+            "material_id": "mat_0000000b"
+        }
+    ]
+
+    write_fixture(
+        "28_shared_texture_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000026",
+            "name": "SharedTextureObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000014",
+                "file": "meshes/mesh_00000014.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_SharedMatA",
+                    "material_id": "mat_0000000a"
+                },
+                {
+                    "slot_index": 1,
+                    "slot_name": "M_SharedMatB",
+                    "material_id": "mat_0000000b"
+                }
+            ]
+        }],
+        meshes={"mesh_00000014": mesh_shared},
+        materials={
+            "mat_0000000a": mat_shared_a,
+            "mat_0000000b": mat_shared_b
+        },
+        textures=[tex_07_shared]
+    )
+
+    print(f"Generated 28 test fixtures in {FIXTURES_DIR}")
 
 
 if __name__ == "__main__":

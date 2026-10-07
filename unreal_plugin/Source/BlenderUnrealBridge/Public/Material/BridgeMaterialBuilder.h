@@ -19,13 +19,17 @@ public:
 	 * @param MaterialData Canonical PBR material data
 	 * @param OutReport Diagnostic report collecting any warnings or errors
 	 * @param MasterMaterial Optional master material to instantiate from; if null, uses default surface material
+	 * @param PackageData Optional package data containing textures and package directory
+	 * @param TextureCache Optional cache of TextureId -> UTexture2D* to share textures across materials
 	 * @return Created UMaterialInterface or nullptr on failure
 	 */
 	static UMaterialInterface* CreateMaterial(
 		UObject* Outer,
 		const FBridgeMaterialData& MaterialData,
 		FBridgeValidationReport& OutReport,
-		UMaterialInterface* MasterMaterial = nullptr);
+		UMaterialInterface* MasterMaterial = nullptr,
+		const FBridgePackageData* PackageData = nullptr,
+		TMap<FString, class UTexture2D*>* TextureCache = nullptr);
 
 	/**
 	 * Creates all materials defined in a Bridge package data.

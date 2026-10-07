@@ -76,7 +76,25 @@ public:
 		const TArray<FBridgeObject>& Objects,
 		FBridgeValidationReport& OutReport);
 
+	/**
+	 * Validates a single canonical texture entry.
+	 */
+	static bool ValidateTexture(
+		const FBridgeTextureData& Texture,
+		const FString& PackageDirectory,
+		FBridgeValidationReport& OutReport);
+
+	/**
+	 * Validates all loaded textures and verifies referential integrity from materials.
+	 */
+	static bool ValidateTextures(
+		const TMap<FString, FBridgeTextureData>& Textures,
+		const TMap<FString, FBridgeMaterialData>& Materials,
+		const FString& PackageDirectory,
+		FBridgeValidationReport& OutReport);
+
 	static bool IsValidBridgeId(const FString& Id);
 	static bool IsValidMeshId(const FString& Id);
 	static bool IsValidMaterialId(const FString& Id);
+	static bool IsValidTextureId(const FString& Id);
 };

@@ -1,4 +1,6 @@
 #include "Reader/BridgePackageValidator.h"
+#include "HAL/PlatformFileManager.h"
+#include "Misc/Paths.h"
 
 const FString FBridgePackageValidator::SupportedFormat = TEXT("BUBRIDGE");
 const int32 FBridgePackageValidator::SupportedMajorVersion = 0;
@@ -64,6 +66,26 @@ bool FBridgePackageValidator::IsValidMaterialId(const FString& Id)
 	return true;
 }
 
+bool FBridgePackageValidator::IsValidTextureId(const FString& Id)
+{
+	// Expected format: "tex_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("tex_")) || Id.Len() < 12)
+	{
+		return false;
+	}
+
+	for (int32 i = 4; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool FBridgePackageValidator::ValidatePackage(
 	const FBridgePackageData& PackageData,
 	FBridgeValidationReport& OutReport)
@@ -75,6 +97,7 @@ bool FBridgePackageValidator::ValidatePackage(
 	bValid &= ValidateObjects(PackageData.Objects, OutReport);
 	bValid &= ValidateMeshes(PackageData.Meshes, PackageData.Objects, OutReport);
 	bValid &= ValidateMaterials(PackageData.Materials, PackageData.Meshes, PackageData.Objects, OutReport);
+	bValid &= ValidateTextures(PackageData.Textures, PackageData.Materials, PackageData.PackageDirectory, OutReport);
 
 	return bValid && OutReport.IsValid();
 }
@@ -617,3 +640,110 @@ bool FBridgePackageValidator::ValidateMaterials(
 
 	return bValid;
 }
+
+bool FBridgePackageValidator::ValidateTexture(
+	const FBridgeTextureData& Texture,
+	const FString& PackageDirectory,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	if (!IsValidTextureId(Texture.Id))
+	{
+		OutReport.AddError(
+			TEXT("TEXTURE_INVALID_ID_FORMAT"),
+			FString::Printf(TEXT("Texture '%s' has malformed Bridge Texture ID '%s' (must be 'tex_<hex>')"), *Texture.Name, *Texture.Id),
+			Texture.Id);
+		bValid = false;
+	}
+
+	if (!Texture.RelativePath.StartsWith(TEXT("textures/")))
+	{
+		OutReport.AddError(
+			TEXT("TEXTURE_INVALID_PATH"),
+			FString::Printf(TEXT("Texture '%s' relative path must start with 'textures/', got '%s'"), *Texture.Id, *Texture.RelativePath),
+			Texture.Id);
+		bValid = false;
+	}
+
+	if (Texture.ColorSpace != TEXT("sRGB") && Texture.ColorSpace != TEXT("Linear"))
+	{
+		OutReport.AddError(
+			TEXT("TEXTURE_INVALID_COLOR_SPACE"),
+			FString::Printf(TEXT("Texture '%s' color space must be 'sRGB' or 'Linear', got '%s'"), *Texture.Id, *Texture.ColorSpace),
+			Texture.Id);
+		bValid = false;
+	}
+
+	if (Texture.Dimensions.X <= 0 || Texture.Dimensions.Y <= 0)
+	{
+		OutReport.AddError(
+			TEXT("TEXTURE_INVALID_DIMENSIONS"),
+			FString::Printf(TEXT("Texture '%s' dimensions must be positive integers, got (%d, %d)"), *Texture.Id, Texture.Dimensions.X, Texture.Dimensions.Y),
+			Texture.Id);
+		bValid = false;
+	}
+
+	if (Texture.Channels < 1 || Texture.Channels > 4)
+	{
+		OutReport.AddError(
+			TEXT("TEXTURE_INVALID_CHANNELS"),
+			FString::Printf(TEXT("Texture '%s' channels must be in [1, 4], got %d"), *Texture.Id, Texture.Channels),
+			Texture.Id);
+		bValid = false;
+	}
+
+	if (!PackageDirectory.IsEmpty() && !Texture.RelativePath.IsEmpty())
+	{
+		FString FullPath = FPaths::Combine(PackageDirectory, Texture.RelativePath);
+		IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+		if (!PlatformFile.FileExists(*FullPath))
+		{
+			OutReport.AddError(
+				TEXT("TEX_FILE_NOT_FOUND"),
+				FString::Printf(TEXT("Texture file not found on disk: '%s'"), *FullPath),
+				Texture.Id);
+			bValid = false;
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateTextures(
+	const TMap<FString, FBridgeTextureData>& Textures,
+	const TMap<FString, FBridgeMaterialData>& Materials,
+	const FString& PackageDirectory,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	for (const auto& Pair : Textures)
+	{
+		bValid &= ValidateTexture(Pair.Value, PackageDirectory, OutReport);
+	}
+
+	// Validate material -> texture references
+	for (const auto& MatPair : Materials)
+	{
+		const FBridgeMaterialData& Mat = MatPair.Value;
+		for (const auto& TexKvp : Mat.Textures)
+		{
+			const FString& Channel = TexKvp.Key;
+			const FString& TexId = TexKvp.Value;
+
+			if (!TexId.IsEmpty() && !Textures.Contains(TexId))
+			{
+				OutReport.AddError(
+					TEXT("MATERIAL_BROKEN_TEXTURE_REF"),
+					FString::Printf(TEXT("Material '%s' channel '%s' references non-existent texture '%s'"),
+						*Mat.MaterialId, *Channel, *TexId),
+					Mat.MaterialId);
+				bValid = false;
+			}
+		}
+	}
+
+	return bValid;
+}
+

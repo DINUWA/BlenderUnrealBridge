@@ -23,6 +23,7 @@ import bpy
 from ..collectors.scene_collector import collect_scene
 from ..geometry.mesh_extractor import extract_mesh_data
 from ..materials.material_extractor import extract_material_data
+from ..materials.texture_extractor import extract_material_textures
 from ..version import FORMAT_NAME, FORMAT_VERSION, VERSION_STRING
 from .json_serializer import serialize_json
 from .package_validator import PackageValidator, ValidationResult
@@ -105,6 +106,7 @@ def build_package_data(
     objects_list: List[Dict[str, Any]] = []
     meshes_dict: Dict[str, Dict[str, Any]] = {}
     materials_dict: Dict[str, Dict[str, Any]] = {}
+    textures_dict: Dict[str, Dict[str, Any]] = {}
 
     for meta in inspection.objects:
         obj = scene.objects.get(meta.name)
@@ -161,6 +163,17 @@ def build_package_data(
                         mat_id = mat_data["material_id"]
                         if mat_id not in materials_dict:
                             materials_dict[mat_id] = mat_data
+
+                        # Discover textures connected to this material
+                        _, disc_textures, tex_diags = extract_material_textures(slot.material)
+                        for tex_id, tex_meta in disc_textures.items():
+                            if tex_id not in textures_dict:
+                                textures_dict[tex_id] = tex_meta
+                        for d in tex_diags:
+                            if d["level"] == "ERROR":
+                                inspection.errors.append(d["message"])
+                            else:
+                                inspection.warnings.append(d["message"])
                     except Exception as exc:
                         inspection.errors.append(f"Failed to extract material for slot '{slot.name}': {exc}")
 
@@ -229,7 +242,7 @@ def build_package_data(
             "object_count": len(objects_list),
             "mesh_count": len(meshes_dict),
             "material_count": len(materials_dict),
-            "texture_count": 0,
+            "texture_count": len(textures_dict),
         },
     }
 
@@ -237,7 +250,12 @@ def build_package_data(
 
     # 6. Run validation
     validation_result = PackageValidator.validate_package(
-        manifest_dict, scene_dict, objects_dict, meshes=meshes_dict, materials=materials_dict
+        manifest_dict,
+        scene_dict,
+        objects_dict,
+        meshes=meshes_dict,
+        materials=materials_dict,
+        textures=textures_dict,
     )
 
     # Transfer inspection warnings/errors into the validation result
@@ -252,6 +270,7 @@ def build_package_data(
         "objects": objects_dict,
         "meshes": meshes_dict,
         "materials": materials_dict,
+        "textures": textures_dict,
         "validation_result": validation_result,
         "timestamp": timestamp,
     }
@@ -331,9 +350,44 @@ def write_bridge_package(
             mat_content = serialize_json(mat_data)
             (materials_dir / f"{mat_id}.json").write_text(mat_content, encoding="utf-8")
 
-        (stage_dir / "textures").mkdir(exist_ok=True)
+        # 7. Create textures directory, copy/extract image files, and write textures.json
+        textures_dir = stage_dir / "textures"
+        textures_dir.mkdir(exist_ok=True)
 
-        # 7. Finalize: Atomic move/replace
+        clean_textures = []
+        for tex_id, tex_meta in sorted(package_data.get("textures", {}).items()):
+            rel_path = tex_meta.get("relative_path", f"textures/{tex_id}.png")
+            dest_file = stage_dir / rel_path
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+            if tex_meta.get("_is_packed"):
+                image = tex_meta.get("_image")
+                if image and hasattr(image, "packed_file") and image.packed_file and hasattr(image.packed_file, "data"):
+                    dest_file.write_bytes(image.packed_file.data)
+                elif image and hasattr(image, "save_render"):
+                    image.save_render(str(dest_file))
+            else:
+                source_path = tex_meta.get("_source_path")
+                if source_path and Path(source_path).is_file():
+                    shutil.copy2(source_path, dest_file)
+                else:
+                    image = tex_meta.get("_image")
+                    if image and hasattr(image, "save_render"):
+                        image.save_render(str(dest_file))
+
+            # Strip internal keys starting with '_' for clean serialization
+            clean_meta = {k: v for k, v in tex_meta.items() if not k.startswith("_")}
+            clean_textures.append(clean_meta)
+
+        textures_doc = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "format": "BUBRIDGE_TEXTURES",
+            "version": "0.1.0",
+            "textures": clean_textures,
+        }
+        (stage_dir / "textures.json").write_text(serialize_json(textures_doc), encoding="utf-8")
+
+        # 8. Finalize: Atomic move/replace
         if package_dir.exists():
             shutil.rmtree(package_dir)
         stage_dir.rename(package_dir)

@@ -23,6 +23,7 @@ import math
 import bpy
 
 from ..collectors.id_generator import ensure_material_id
+from .texture_extractor import extract_material_textures
 
 MATERIAL_FORMAT = "BUBRIDGE_MATERIAL"
 MATERIAL_VERSION = "0.1.0"
@@ -89,6 +90,7 @@ def extract_material_data(mat: Optional[bpy.types.Material]) -> Dict[str, Any]:
             "opacity": 1.0,
             "blend_mode": "OPAQUE",
             "two_sided": False,
+            "textures": {},
         }
 
     # Stable, deterministic material ID
@@ -182,6 +184,8 @@ def extract_material_data(mat: Optional[bpy.types.Material]) -> Dict[str, Any]:
     elif opacity < 0.999:
         blend_mode = "TRANSLUCENT"
 
+    textures_map, _, _ = extract_material_textures(mat)
+
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "format": MATERIAL_FORMAT,
@@ -197,4 +201,5 @@ def extract_material_data(mat: Optional[bpy.types.Material]) -> Dict[str, Any]:
         "opacity": opacity,
         "blend_mode": blend_mode,
         "two_sided": two_sided,
+        "textures": textures_map,
     }

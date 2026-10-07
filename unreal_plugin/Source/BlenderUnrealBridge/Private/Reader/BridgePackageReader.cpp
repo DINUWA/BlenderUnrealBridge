@@ -50,18 +50,21 @@ bool FBridgePackageReader::LoadPackage(
 	// 6. Load material assets from materials/
 	LoadMaterials(PackageDirectory, OutPackageData.Materials, OutReport);
 
-	// 7. Build fast lookup ID map
+	// 7. Load texture assets from textures.json
+	LoadTextures(PackageDirectory, OutPackageData.Textures, OutReport);
+
+	// 8. Build fast lookup ID map
 	OutPackageData.RebuildIdMap();
 
-	// 8. Execute full protocol validation
+	// 9. Execute full protocol validation
 	if (!FBridgePackageValidator::ValidatePackage(OutPackageData, OutReport))
 	{
-		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, materials, or hierarchy failed validation"));
+		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, materials, textures, or hierarchy failed validation"));
 		return false;
 	}
 
-	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects, %d meshes, and %d materials"),
-		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num(), OutPackageData.Materials.Num()));
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects, %d meshes, %d materials, and %d textures"),
+		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num(), OutPackageData.Materials.Num(), OutPackageData.Textures.Num()));
 
 	return true;
 }
@@ -650,6 +653,20 @@ bool FBridgePackageReader::ParseMaterial(
 	JsonObject->TryGetStringField(TEXT("blend_mode"), OutMaterial.BlendMode);
 	JsonObject->TryGetBoolField(TEXT("two_sided"), OutMaterial.bTwoSided);
 
+	// Textures map (Milestone 7)
+	const TSharedPtr<FJsonObject>* TexturesObj = nullptr;
+	if (JsonObject->TryGetObjectField(TEXT("textures"), TexturesObj) && TexturesObj)
+	{
+		for (const auto& Kvp : (*TexturesObj)->Values)
+		{
+			FString TexId;
+			if (Kvp.Value.IsValid() && Kvp.Value->TryGetString(TexId))
+			{
+				OutMaterial.Textures.Add(FString(*Kvp.Key), TexId);
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -679,6 +696,84 @@ bool FBridgePackageReader::LoadMaterials(
 			if (ParseMaterial(MatJson, MatData, OutReport))
 			{
 				OutMaterials.Add(MatData.MaterialId, MatData);
+			}
+		}
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::ParseTexture(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeTextureData& OutTexture,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject.IsValid())
+	{
+		return false;
+	}
+
+	JsonObject->TryGetStringField(TEXT("id"), OutTexture.Id);
+	JsonObject->TryGetStringField(TEXT("name"), OutTexture.Name);
+	JsonObject->TryGetStringField(TEXT("relative_path"), OutTexture.RelativePath);
+	JsonObject->TryGetStringField(TEXT("format"), OutTexture.Format);
+	JsonObject->TryGetStringField(TEXT("color_space"), OutTexture.ColorSpace);
+	JsonObject->TryGetBoolField(TEXT("has_alpha"), OutTexture.bHasAlpha);
+	JsonObject->TryGetStringField(TEXT("compression_settings"), OutTexture.CompressionSettings);
+
+	int32 Channels = 4;
+	if (JsonObject->TryGetNumberField(TEXT("channels"), Channels))
+	{
+		OutTexture.Channels = Channels;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* DimsArray = nullptr;
+	if (JsonObject->TryGetArrayField(TEXT("dimensions"), DimsArray) && DimsArray && DimsArray->Num() >= 2)
+	{
+		OutTexture.Dimensions = FIntPoint(
+			static_cast<int32>((*DimsArray)[0]->AsNumber()),
+			static_cast<int32>((*DimsArray)[1]->AsNumber()));
+	}
+
+	return true;
+}
+
+bool FBridgePackageReader::LoadTextures(
+	const FString& PackageDirectory,
+	TMap<FString, FBridgeTextureData>& OutTextures,
+	FBridgeValidationReport& OutReport)
+{
+	FString TexturesFile = FPaths::Combine(PackageDirectory, TEXT("textures.json"));
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	if (!PlatformFile.FileExists(*TexturesFile))
+	{
+		// textures.json is optional if package has no textures
+		return true;
+	}
+
+	TSharedPtr<FJsonObject> TexturesDoc;
+	if (!ReadJsonFile(TexturesFile, TexturesDoc, OutReport))
+	{
+		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* TexturesArray = nullptr;
+	if (TexturesDoc->TryGetArrayField(TEXT("textures"), TexturesArray) && TexturesArray)
+	{
+		for (const TSharedPtr<FJsonValue>& TexVal : *TexturesArray)
+		{
+			const TSharedPtr<FJsonObject>* TexObj = nullptr;
+			if (TexVal.IsValid() && TexVal->TryGetObject(TexObj) && TexObj)
+			{
+				FBridgeTextureData TexData;
+				if (ParseTexture(*TexObj, TexData, OutReport))
+				{
+					if (!TexData.Id.IsEmpty())
+					{
+						OutTextures.Add(TexData.Id, TexData);
+					}
+				}
 			}
 		}
 	}

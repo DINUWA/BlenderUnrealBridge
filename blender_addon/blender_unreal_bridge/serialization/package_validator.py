@@ -97,6 +97,7 @@ class ValidationResult:
 ID_PATTERN = re.compile(r"^obj_[0-9a-fA-F]{8,}$")
 MESH_ID_PATTERN = re.compile(r"^mesh_[0-9a-fA-F]{8,}$")
 MATERIAL_ID_PATTERN = re.compile(r"^mat_[0-9a-fA-F]{8,}$")
+TEXTURE_ID_PATTERN = re.compile(r"^tex_[0-9a-fA-F]{8,}$")
 
 
 class PackageValidator:
@@ -473,6 +474,67 @@ class PackageValidator:
                 mat_id,
             )
 
+        # Textures map validation
+        textures = material_data.get("textures")
+        if textures is not None:
+            if not isinstance(textures, dict):
+                result.add_error(
+                    "MATERIAL_INVALID_TEXTURES_MAP",
+                    f"Material '{mat_id}' textures field must be a dictionary",
+                    mat_id,
+                )
+            else:
+                for channel, tex_ref in textures.items():
+                    if tex_ref and not TEXTURE_ID_PATTERN.match(tex_ref):
+                        result.add_error(
+                            "MATERIAL_INVALID_TEXTURE_ID",
+                            f"Material '{mat_id}' channel '{channel}' references invalid texture ID '{tex_ref}'",
+                            mat_id,
+                        )
+
+    @classmethod
+    def validate_texture(cls, texture_data: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates canonical texture metadata conforming to DATA_PROTOCOL.md §4.6."""
+        tex_id = texture_data.get("id")
+        if not tex_id or not TEXTURE_ID_PATTERN.match(tex_id):
+            result.add_error(
+                "TEXTURE_INVALID_ID_FORMAT",
+                f"Texture ID '{tex_id}' must match format 'tex_<8+ hex chars>'",
+                tex_id,
+            )
+
+        rel_path = texture_data.get("relative_path", "")
+        if not rel_path or not rel_path.startswith("textures/"):
+            result.add_error(
+                "TEXTURE_INVALID_PATH",
+                f"Texture '{tex_id}' relative_path must start with 'textures/', got '{rel_path}'",
+                tex_id,
+            )
+
+        cs = texture_data.get("color_space")
+        if cs not in ("sRGB", "Linear"):
+            result.add_error(
+                "TEXTURE_INVALID_COLOR_SPACE",
+                f"Texture '{tex_id}' color_space must be 'sRGB' or 'Linear', got '{cs}'",
+                tex_id,
+            )
+
+        dims = texture_data.get("dimensions")
+        if not isinstance(dims, (list, tuple)) or len(dims) != 2 or not all(isinstance(d, int) and d > 0 for d in dims):
+            result.add_error(
+                "TEXTURE_INVALID_DIMENSIONS",
+                f"Texture '{tex_id}' dimensions must be a 2-tuple of positive integers, got '{dims}'",
+                tex_id,
+            )
+
+        channels = texture_data.get("channels")
+        if not isinstance(channels, int) or channels < 1 or channels > 4:
+            result.add_error(
+                "TEXTURE_INVALID_CHANNELS",
+                f"Texture '{tex_id}' channels must be an integer between 1 and 4, got '{channels}'",
+                tex_id,
+            )
+
     @classmethod
     def validate_package(
         cls,
@@ -481,8 +543,9 @@ class PackageValidator:
         objects: Dict[str, Any],
         meshes: Optional[Dict[str, Dict[str, Any]]] = None,
         materials: Optional[Dict[str, Dict[str, Any]]] = None,
+        textures: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> ValidationResult:
-        """Runs full validation suite on package components including meshes and materials."""
+        """Runs full validation suite on package components including meshes, materials, and textures."""
         result = ValidationResult()
         cls.validate_manifest(manifest, result)
         cls.validate_scene(scene, result)
@@ -530,6 +593,21 @@ class PackageValidator:
                                 "MESH_BROKEN_MATERIAL_REF",
                                 f"Mesh '{mesh_id}' slot '{slot.get('slot_name')}' references non-existent material '{slot_mat_id}'",
                                 mesh_id,
+                            )
+
+        if textures is not None:
+            for tex_id, tex_data in textures.items():
+                cls.validate_texture(tex_data, result)
+
+            tex_set = set(textures.keys())
+            if materials is not None:
+                for mat_id, mat_data in materials.items():
+                    for channel, tex_ref in mat_data.get("textures", {}).items():
+                        if tex_ref and tex_ref not in tex_set:
+                            result.add_error(
+                                "MATERIAL_BROKEN_TEXTURE_REF",
+                                f"Material '{mat_id}' channel '{channel}' references non-existent texture '{tex_ref}'",
+                                mat_id,
                             )
 
         return result

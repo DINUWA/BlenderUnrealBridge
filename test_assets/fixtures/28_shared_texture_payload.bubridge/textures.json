@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_TEXTURES",
+  "version": "0.1.0",
+  "textures": [
+    {
+      "id": "tex_00000007",
+      "name": "T_SharedAlbedo",
+      "relative_path": "textures/tex_00000007.png",
+      "format": "PNG",
+      "color_space": "sRGB",
+      "dimensions": [
+        1,
+        1
+      ],
+      "channels": 4,
+      "has_alpha": true,
+      "compression_settings": "TC_Default"
+    }
+  ]
+}

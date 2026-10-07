@@ -136,7 +136,7 @@ class BridgePackageValidator:
     SUPPORTED_MINOR = 1
 
     @classmethod
-    def validate_package(cls, manifest, scene, objects, meshes=None, materials=None):
+    def validate_package(cls, manifest, scene, objects, meshes=None, materials=None, textures=None, pkg_dir=None):
         errors = []
         warnings = []
 
@@ -304,11 +304,61 @@ class BridgePackageValidator:
                         if slot_mat_id and slot_mat_id not in materials:
                             errors.append(("MESH_BROKEN_MATERIAL_REF", f"Mesh references missing material {slot_mat_id}"))
 
+        # Textures validation (Milestone 7)
+        if textures is not None:
+            for tex in textures:
+                tex_id = tex.get("id")
+                if not tex_id or not tex_id.startswith("tex_") or len(tex_id) < 12:
+                    errors.append(("TEXTURE_INVALID_ID_FORMAT", f"Invalid texture ID format '{tex_id}'"))
+
+                rel_path = tex.get("relative_path", "")
+                if not rel_path.startswith("textures/"):
+                    errors.append(("TEXTURE_INVALID_PATH", f"Texture '{tex_id}' relative path must start with 'textures/', got '{rel_path}'"))
+
+                cs = tex.get("color_space")
+                if cs not in ("sRGB", "Linear"):
+                    errors.append(("TEXTURE_INVALID_COLOR_SPACE", f"Texture '{tex_id}' invalid color space '{cs}'"))
+
+                dims = tex.get("dimensions", [])
+                if not isinstance(dims, (list, tuple)) or len(dims) != 2 or dims[0] <= 0 or dims[1] <= 0:
+                    errors.append(("TEXTURE_INVALID_DIMENSIONS", f"Texture '{tex_id}' invalid dimensions '{dims}'"))
+
+                channels = tex.get("channels")
+                if not isinstance(channels, int) or channels < 1 or channels > 4:
+                    errors.append(("TEXTURE_INVALID_CHANNELS", f"Texture '{tex_id}' invalid channels '{channels}'"))
+
+                if pkg_dir and rel_path:
+                    full_path = Path(pkg_dir) / rel_path
+                    if not full_path.is_file():
+                        errors.append(("TEX_FILE_NOT_FOUND", f"Texture file not found on disk: '{full_path}'"))
+
+        # Materials -> Texture references validation (Milestone 7)
+        if materials is not None:
+            tex_set = {t["id"] for t in (textures or []) if isinstance(t, dict) and "id" in t}
+            for mat_id, mat in materials.items():
+                for channel, tex_id in mat.get("textures", {}).items():
+                    if tex_id and tex_id not in tex_set:
+                        errors.append(("MATERIAL_BROKEN_TEXTURE_REF", f"Material '{mat_id}' channel '{channel}' references missing texture '{tex_id}'"))
+
         return errors, warnings
 
 
+class FixtureData:
+    def __init__(self, manifest, scene, objects, meshes, materials, textures=None, pkg_dir=None):
+        self.manifest = manifest
+        self.scene = scene
+        self.objects = objects
+        self.meshes = meshes
+        self.materials = materials
+        self.textures = textures or []
+        self.pkg_dir = pkg_dir
+
+    def __iter__(self):
+        return iter((self.manifest, self.scene, self.objects, self.meshes, self.materials))
+
+
 class TestUnrealPackageReaderFixtures(unittest.TestCase):
-    """Test validation of all 21 fixtures against the reader's validation rules."""
+    """Test validation of all 28 fixtures against the reader's validation rules."""
 
     def _load_fixture(self, name):
         pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
@@ -332,7 +382,13 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
                 with open(mat_file, "r", encoding="utf-8") as f:
                     mat_data = json.load(f)
                     materials[mat_data.get("material_id", mat_file.stem)] = mat_data
-        return manifest, scene, objects_data["objects"], meshes, materials
+        textures = []
+        tex_file = pkg_dir / "textures.json"
+        if tex_file.exists():
+            with open(tex_file, "r", encoding="utf-8") as f:
+                tex_data = json.load(f)
+                textures = tex_data.get("textures", [])
+        return FixtureData(manifest, scene, objects_data["objects"], meshes, materials, textures, pkg_dir)
 
     def test_fixture_01_identity_valid(self):
         m, s, o, meshes, mats = self._load_fixture("01_identity_scene")
@@ -470,6 +526,70 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         m, s, o, meshes, mats = self._load_fixture("21_invalid_material_schema")
         errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "MATERIAL_INVALID_FORMAT" for code, _ in errors))
+
+    def test_fixture_22_texture_payload_valid(self):
+        fix = self._load_fixture("22_texture_payload")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.textures), 1)
+        self.assertEqual(fix.textures[0]["id"], "tex_00000001")
+
+    def test_fixture_23_textured_material_payload_valid(self):
+        fix = self._load_fixture("23_textured_material_payload")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.materials), 1)
+        mat = fix.materials["mat_00000005"]
+        self.assertIn("base_color", mat.get("textures", {}))
+        self.assertEqual(mat["textures"]["base_color"], "tex_00000002")
+
+    def test_fixture_24_multi_texture_material_valid(self):
+        fix = self._load_fixture("24_multi_texture_material")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.textures), 3)
+        mat = fix.materials["mat_00000006"]
+        self.assertEqual(mat["textures"]["base_color"], "tex_00000003")
+        self.assertEqual(mat["textures"]["roughness"], "tex_00000004")
+        self.assertEqual(mat["textures"]["normal"], "tex_00000005")
+
+    def test_fixture_25_missing_texture_ref_detected(self):
+        fix = self._load_fixture("25_missing_texture_reference")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "MATERIAL_BROKEN_TEXTURE_REF" for code, _ in errors))
+
+    def test_fixture_26_missing_texture_file_detected(self):
+        fix = self._load_fixture("26_missing_texture_file")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "TEX_FILE_NOT_FOUND" for code, _ in errors))
+
+    def test_fixture_27_invalid_texture_schema_detected(self):
+        fix = self._load_fixture("27_invalid_texture_schema")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code in ("TEXTURE_INVALID_ID_FORMAT", "TEXTURE_INVALID_COLOR_SPACE") for code, _ in errors))
+
+    def test_fixture_28_shared_texture_payload_valid(self):
+        fix = self._load_fixture("28_shared_texture_payload")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.textures), 1)
+        self.assertEqual(len(fix.materials), 2)
+        self.assertEqual(fix.materials["mat_0000000a"]["textures"]["base_color"], "tex_00000007")
+        self.assertEqual(fix.materials["mat_0000000b"]["textures"]["base_color"], "tex_00000007")
 
 
 class TestMilestone3Integration(unittest.TestCase):
@@ -729,6 +849,112 @@ class TestMilestone6MaterialValidation(unittest.TestCase):
             materials={"mat_12345678": bad_mat}
         )
         self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_SPECULAR" for code, _ in errs))
+
+
+class TestMilestone7TextureValidation(unittest.TestCase):
+    """Direct validation tests for Milestone 7 texture payloads and attributes."""
+
+    def setUp(self):
+        self.base_manifest = {
+            "format": "BUBRIDGE", "version": "0.1.0",
+            "coordinate_system": {
+                "up_axis": "Z", "forward_axis": "X", "right_axis": "Y",
+                "handedness": "left_handed", "unit": "centimeter"
+            }
+        }
+        self.base_scene = {"name": "TestScene", "collections": []}
+        self.valid_texture = {
+            "id": "tex_12345678",
+            "name": "T_Valid",
+            "relative_path": "textures/tex_12345678.png",
+            "format": "PNG",
+            "color_space": "sRGB",
+            "dimensions": [512, 512],
+            "channels": 4,
+            "has_alpha": True,
+            "compression_settings": "TC_Default"
+        }
+        self.valid_material = {
+            "format": "BUBRIDGE_MATERIAL",
+            "version": "0.1.0",
+            "material_id": "mat_12345678",
+            "name": "M_TestPbr",
+            "model": "PBR_METALLIC_ROUGHNESS",
+            "properties": {
+                "base_color": [0.5, 0.5, 0.5, 1.0],
+                "metallic": 0.0,
+                "roughness": 0.5,
+                "specular": 0.5,
+                "ior": 1.5,
+                "opacity": 1.0,
+                "blend_mode": "OPAQUE",
+                "two_sided": False
+            },
+            "textures": {
+                "base_color": "tex_12345678"
+            }
+        }
+
+    def test_valid_texture(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": self.valid_material},
+            textures=[self.valid_texture]
+        )
+        self.assertEqual(len(errs), 0)
+
+    def test_invalid_texture_id_format(self):
+        bad_tex = dict(self.valid_texture)
+        bad_tex["id"] = "invalid_id"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            textures=[bad_tex]
+        )
+        self.assertTrue(any(code == "TEXTURE_INVALID_ID_FORMAT" for code, _ in errs))
+
+    def test_invalid_texture_path(self):
+        bad_tex = dict(self.valid_texture)
+        bad_tex["relative_path"] = "images/tex_12345678.png"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            textures=[bad_tex]
+        )
+        self.assertTrue(any(code == "TEXTURE_INVALID_PATH" for code, _ in errs))
+
+    def test_invalid_texture_colorspace(self):
+        bad_tex = dict(self.valid_texture)
+        bad_tex["color_space"] = "UNKNOWN_COLORSPACE"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            textures=[bad_tex]
+        )
+        self.assertTrue(any(code == "TEXTURE_INVALID_COLOR_SPACE" for code, _ in errs))
+
+    def test_invalid_texture_dimensions(self):
+        bad_tex = dict(self.valid_texture)
+        bad_tex["dimensions"] = [0, -10]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            textures=[bad_tex]
+        )
+        self.assertTrue(any(code == "TEXTURE_INVALID_DIMENSIONS" for code, _ in errs))
+
+    def test_invalid_texture_channels(self):
+        bad_tex = dict(self.valid_texture)
+        bad_tex["channels"] = 6
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            textures=[bad_tex]
+        )
+        self.assertTrue(any(code == "TEXTURE_INVALID_CHANNELS" for code, _ in errs))
+
+    def test_material_referencing_missing_texture(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": self.valid_material},
+            textures=[]  # empty textures, so tex_12345678 is missing
+        )
+        self.assertTrue(any(code == "MATERIAL_BROKEN_TEXTURE_REF" for code, _ in errs))
 
 
 if __name__ == "__main__":

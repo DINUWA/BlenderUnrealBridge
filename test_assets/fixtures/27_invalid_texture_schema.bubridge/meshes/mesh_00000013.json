@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_MESH",
+  "version": "0.1.0",
+  "mesh_id": "mesh_00000013",
+  "name": "TestCubeMesh",
+  "source": {
+    "application": "Blender",
+    "version": "4.5.3 LTS"
+  },
+  "coordinate_system": {
+    "up_axis": "Z",
+    "forward_axis": "X",
+    "right_axis": "Y",
+    "handedness": "left_handed",
+    "unit": "centimeter"
+  },
+  "counts": {
+    "vertex_count": 4,
+    "triangle_count": 2,
+    "uv_layer_count": 1,
+    "material_slot_count": 1
+  },
+  "bounds": {
+    "min": [
+      -50.0,
+      -50.0,
+      0.0
+    ],
+    "max": [
+      50.0,
+      50.0,
+      100.0
+    ]
+  },
+  "vertices": [
+    [
+      -50.0,
+      -50.0,
+      0.0
+    ],
+    [
+      50.0,
+      -50.0,
+      0.0
+    ],
+    [
+      50.0,
+      50.0,
+      0.0
+    ],
+    [
+      -50.0,
+      50.0,
+      0.0
+    ]
+  ],
+  "triangles": [
+    {
+      "vertex_indices": [
+        0,
+        2,
+        1
+      ],
+      "normals": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "uvs": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          0.0
+        ]
+      ],
+      "material_slot_index": 0
+    },
+    {
+      "vertex_indices": [
+        0,
+        3,
+        2
+      ],
+      "normals": [
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "uvs": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0
+        ]
+      ],
+      "material_slot_index": 0
+    }
+  ],
+  "material_slots": [
+    {
+      "slot_index": 0,
+      "slot_name": "M_BadTexSchema",
+      "material_id": "mat_00000009"
+    }
+  ]
+}

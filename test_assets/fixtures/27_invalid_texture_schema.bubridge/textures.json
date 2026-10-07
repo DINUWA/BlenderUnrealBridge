@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_TEXTURES",
+  "version": "0.1.0",
+  "textures": [
+    {
+      "id": "bad_tex_id",
+      "name": "T_BadSchema",
+      "relative_path": "textures/bad.png",
+      "format": "PNG",
+      "color_space": "INVALID_COLOR_SPACE",
+      "dimensions": [
+        0,
+        0
+      ],
+      "channels": 5,
+      "has_alpha": false,
+      "compression_settings": "TC_Default"
+    }
+  ]
+}

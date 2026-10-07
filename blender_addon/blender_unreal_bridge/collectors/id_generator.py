@@ -167,3 +167,55 @@ def has_material_id(material) -> bool:
     return BUBRIDGE_ID_KEY in material
 
 
+def _generate_texture_id() -> str:
+    """Generate a new unique Bridge Texture ID string in the format 'tex_XXXXXXXX'."""
+    return "tex_" + uuid.uuid4().hex[:8]
+
+
+def ensure_texture_id(image) -> str:
+    """
+    Return the existing bubridge_id for a Blender Image datablock, or generate and
+    assign a new one if none exists.
+
+    Args:
+        image: A bpy.types.Image instance.
+
+    Returns:
+        The stable string Bridge Texture ID for this image datablock.
+    """
+    existing = image.get(BUBRIDGE_ID_KEY)
+    if existing:
+        return str(existing)
+
+    new_id = _generate_texture_id()
+    image[BUBRIDGE_ID_KEY] = new_id
+    return new_id
+
+
+def get_texture_id(image) -> str | None:
+    """
+    Return the existing bubridge_id for a Blender Image datablock without creating one.
+
+    Args:
+        image: A bpy.types.Image instance.
+
+    Returns:
+        The existing Texture ID string, or None if the image has no bubridge_id.
+    """
+    value = image.get(BUBRIDGE_ID_KEY)
+    return str(value) if value is not None else None
+
+
+def has_texture_id(image) -> bool:
+    """
+    Return True if the image already has a bubridge_id assigned.
+
+    Args:
+        image: A bpy.types.Image instance.
+
+    Returns:
+        True if the image has a bubridge_id custom property.
+    """
+    return BUBRIDGE_ID_KEY in image
+
+

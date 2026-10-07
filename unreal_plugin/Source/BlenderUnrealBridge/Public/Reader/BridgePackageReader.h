@@ -96,4 +96,14 @@ private:
 		const FString& PackageDirectory,
 		TMap<FString, FBridgeMaterialData>& OutMaterials,
 		FBridgeValidationReport& OutReport);
+
+	static bool ParseTexture(
+		const TSharedPtr<class FJsonObject>& JsonObject,
+		FBridgeTextureData& OutTexture,
+		FBridgeValidationReport& OutReport);
+
+	static bool LoadTextures(
+		const FString& PackageDirectory,
+		TMap<FString, FBridgeTextureData>& OutTextures,
+		FBridgeValidationReport& OutReport);
 };
