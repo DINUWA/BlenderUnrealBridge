@@ -151,7 +151,7 @@ Defines all scene entities, their transforms, hierarchy, mesh references, and ma
       },
       "mesh_reference": {
         "mesh_id": "mesh_house_01",
-        "file": "meshes/house_01.glb",
+        "file": "meshes/mesh_house_01.json",
         "submesh_index": 0
       },
       "material_slots": [
@@ -184,7 +184,7 @@ Defines all scene entities, their transforms, hierarchy, mesh references, and ma
       },
       "mesh_reference": {
         "mesh_id": "mesh_chimney_01",
-        "file": "meshes/chimney_01.glb",
+        "file": "meshes/mesh_chimney_01.json",
         "submesh_index": 0
       },
       "material_slots": [
@@ -207,7 +207,79 @@ Defines all scene entities, their transforms, hierarchy, mesh references, and ma
 
 ---
 
-### 4.4 `materials.json`
+### 4.4 `meshes/<mesh_id>.json` (Canonical Geometry Payload)
+
+Captures extracted static mesh geometry converted into Canonical Bridge coordinates (`BUBRIDGE_MESH` v0.1.0).
+
+* **Coordinate space**: Left-Handed, Z-Up, Centimeter units ($Canon_X = Blender_Y \times 100$, $Canon_Y = Blender_X \times 100$, $Canon_Z = Blender_Z \times 100$).
+* **Normals**: Canonical unit vectors ($Canon_{Nx} = Blender_{Ny}$, $Canon_{Ny} = Blender_{Nx}$, $Canon_{Nz} = Blender_{Nz}$).
+* **Winding order**: Flipped for Left-Handed space (`[v0, v2, v1]`).
+* **UVs**: Triangle-corner UV coordinates from active UV layer.
+* **Material slots**: Indexed slot assignments per triangle.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_MESH",
+  "version": "0.1.0",
+  "mesh_id": "mesh_00000001",
+  "name": "CubeMesh",
+  "source": {
+    "application": "Blender",
+    "version": "4.5.3 LTS"
+  },
+  "coordinate_system": {
+    "up_axis": "Z",
+    "forward_axis": "X",
+    "right_axis": "Y",
+    "handedness": "left_handed",
+    "unit": "centimeter"
+  },
+  "counts": {
+    "vertex_count": 8,
+    "triangle_count": 12,
+    "uv_layer_count": 1,
+    "material_slot_count": 1
+  },
+  "bounds": {
+    "min": [-100.0, -100.0, -100.0],
+    "max": [100.0, 100.0, 100.0]
+  },
+  "vertices": [
+    [-100.0, -100.0, -100.0],
+    [-100.0, -100.0, 100.0],
+    [-100.0, 100.0, -100.0],
+    [-100.0, 100.0, 100.0]
+  ],
+  "triangles": [
+    {
+      "vertex_indices": [0, 2, 1],
+      "normals": [
+        [-1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0]
+      ],
+      "uvs": [
+        [0.0, 0.0],
+        [1.0, 1.0],
+        [1.0, 0.0]
+      ],
+      "material_slot_index": 0
+    }
+  ],
+  "material_slots": [
+    {
+      "slot_index": 0,
+      "slot_name": "M_Default",
+      "material_id": null
+    }
+  ]
+}
+```
+
+---
+
+### 4.5 `materials.json`
 
 Captures the semantic PBR parameters extracted from Blender shader graphs.
 

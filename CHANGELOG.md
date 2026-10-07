@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 5] - 2026-10-07
+
+### Added
+- `blender_addon/blender_unreal_bridge/geometry/__init__.py` & `mesh_extractor.py`:
+  - `extract_mesh_data()` non-destructive static mesh extractor.
+  - Evaluation of evaluated meshes (`to_mesh()`) without modifying source Blender objects.
+  - Canonical coordinate transformation (Left-Handed, Z-Up, Centimeters: $X_{canon} = Y_{blender} \times 100$, $Y_{canon} = X_{blender} \times 100$, $Z_{canon} = Z_{blender} \times 100$).
+  - Normal direction conversion and unit normalization ($Nx_{canon} = Ny_{blender}$, $Ny_{canon} = Nx_{blender}$, $Nz_{canon} = Nz_{blender}$).
+  - Flipped triangle winding order (`v0, v2, v1`) for Unreal left-handed space.
+  - Extraction of active UV layer to per-triangle corner coordinates.
+  - Extraction and mapping of material slots to triangle indices.
+- `blender_addon/blender_unreal_bridge/collectors/id_generator.py`:
+  - `ensure_mesh_id()`, `get_mesh_id()`, `_generate_mesh_id()` generating stable `mesh_<8 hex chars>` on `bpy.types.Mesh` datablocks.
+  - Mesh deduplication: multiple objects sharing one mesh datablock reference the same mesh ID.
+- `blender_addon/blender_unreal_bridge/serialization/package_writer.py`:
+  - `build_package_data()` extracts unique meshes, populates `mesh_reference` and `material_slots` on `objects.json`.
+  - Serializes `meshes/<mesh_id>.json` files adhering to `BUBRIDGE_MESH v0.1.0`.
+  - Accurately tracks `content_summary.mesh_count` in `manifest.json`.
+- `blender_addon/blender_unreal_bridge/serialization/package_validator.py`:
+  - `validate_mesh()` for canonical mesh format, IDs, vertices, triangles, and material slots.
+  - Referential integrity validation verifying that all object `mesh_reference`s resolve to existing mesh assets.
+- `blender_addon/tests/test_mesh_extractor.py`:
+  - 9 comprehensive unit tests verifying cube extraction, coordinates, normals, winding order, UVs, material slots, deduplication, non-destructive behavior, and determinism.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h`:
+  - Data structs: `FBridgeMeshReference`, `FBridgeMaterialSlot`, `FBridgeMeshTriangle`, `FBridgeMeshBounds`, `FBridgeMeshData`.
+  - Updated `FBridgeObject` with `MeshReference` and `MaterialSlots`.
+  - Updated `FBridgePackageData` with `Meshes` map (`TMap<FString, FBridgeMeshData>`) and `FindMeshById()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Private/Reader/BridgePackageValidator.cpp`:
+  - `IsValidMeshId()`, `ValidateMesh()`, `ValidateMeshes()` enforcing referential integrity, finite attributes, and valid triangle indices.
+- `unreal_plugin/Source/BlenderUnrealBridge/Private/Reader/BridgePackageReader.cpp`:
+  - Added step 5 in `LoadPackage()` to deserialize `meshes/*.json` via `LoadMeshes()` and `ParseMesh()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Mesh/BridgeMeshBuilder.h` & `Private/Mesh/BridgeMeshBuilder.cpp`:
+  - `FBridgeMeshBuilder::CreateStaticMesh()` constructing native `UStaticMesh` from `FBridgeMeshData` using Unreal's `FMeshDescription` and `StaticMeshDescription` APIs.
+  - Registers attributes, assigns vertex positions, material slots, triangles, vertex instances, normals, and UVs.
+  - Calls `BuildFromMeshDescriptions()` for render and collision generation.
+- `scripts/generate_test_fixtures.py`:
+  - Extended fixture generator to output `meshes/<mesh_id>.json` payloads.
+  - Added fixtures 14 (`14_mesh_payload`), 15 (`15_broken_mesh_ref`), 16 (`16_mesh_index_out_of_bounds`).
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Expanded test suite from 14 to 24 tests, adding validation for fixtures 14-16 and dedicated `TestMilestone5MeshValidation`.
+
+### Validation Status (Milestone 5)
+- **Blender 4.5.3 LTS Runtime Verification**:
+  - `test_mesh_extractor.py`: **9/9 PASSED**
+  - `test_package_serialization.py`: **11/11 PASSED**
+  - `test_transforms.py`: **54/54 PASSED**
+  - `test_scene_collector.py`: **22/22 PASSED**
+  - `test_addon_registration.py`: **2/2 PASSED**
+  - **Total Blender Tests**: **98/98 PASSED** (0 failures, 0 errors in 0.251s)
+- **Engine-Independent Tests (`test_unreal_package_reader.py`)**:
+  - **24/24 PASSED** (0 failures, 0 errors in 0.529s)
+- **Bridge Core C++ (MSVC 2022 via CMake)**:
+  - `VersionTest`: **1/1 PASSED** (0 errors, 0 warnings)
+- **Unreal Engine 5.8 Build Tool (UBT) Compilation**:
+  - Target: `UE_Bridge_UBT_TestEditor Win64 Development`
+  - Modules added: `MeshDescription`, `StaticMeshDescription`
+  - Compiler: MSVC 14.44.35229 / WinSDK 10.0.22621.0 via .NET 10.0.401
+  - Result: **Compilation Succeeded (0 errors, 0 warnings)**
+  - Output Binaries: `UnrealEditor-BlenderUnrealBridge.dll`
+
 ## [Milestone 4] - 2026-10-05
 
 ### Added

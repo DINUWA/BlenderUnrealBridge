@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-10-05T12:00:00Z",
+  "status": "SUCCESS",
+  "summary": {
+    "info_count": 0,
+    "warning_count": 0,
+    "error_count": 0
+  },
+  "messages": []
+}

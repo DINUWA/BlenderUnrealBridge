@@ -136,7 +136,7 @@ class BridgePackageValidator:
     SUPPORTED_MINOR = 1
 
     @classmethod
-    def validate_package(cls, manifest, scene, objects):
+    def validate_package(cls, manifest, scene, objects, meshes=None):
         errors = []
         warnings = []
 
@@ -216,11 +216,60 @@ class BridgePackageValidator:
                 visited.add(curr)
                 curr = parent_map.get(curr)
 
+        # Meshes validation (Milestone 5)
+        if meshes is not None:
+            for mesh_id, mesh in meshes.items():
+                if mesh.get("format") != "BUBRIDGE_MESH":
+                    errors.append(("MESH_INVALID_FORMAT", f"Expected BUBRIDGE_MESH, got {mesh.get('format')}"))
+                if not mesh_id.startswith("mesh_") or len(mesh_id) < 13:
+                    errors.append(("MESH_INVALID_ID_FORMAT", f"Invalid mesh ID {mesh_id}"))
+
+                verts = mesh.get("vertices", [])
+                for idx, v in enumerate(verts):
+                    if not isinstance(v, list) or len(v) != 3 or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in v):
+                        errors.append(("MESH_NON_FINITE_COORDINATE", f"Non-finite coordinate in vertex {idx}"))
+                        break
+
+                vert_count = len(verts)
+                slot_count = len(mesh.get("material_slots", []))
+                for t_idx, tri in enumerate(mesh.get("triangles", [])):
+                    v_indices = tri.get("vertex_indices", [])
+                    has_bad_idx = False
+                    for c_idx in v_indices:
+                        if c_idx < 0 or c_idx >= vert_count:
+                            errors.append(("MESH_INDEX_OUT_OF_BOUNDS", f"Vertex index {c_idx} out of bounds (count {vert_count})"))
+                            has_bad_idx = True
+                            break
+                    if has_bad_idx:
+                        break
+
+                    for n in tri.get("normals", []):
+                        if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in n):
+                            errors.append(("MESH_NON_FINITE_NORMAL", "Non-finite normal"))
+                            break
+
+                    for uv in tri.get("uvs", []):
+                        if not all(isinstance(x, (int, float)) and math.isfinite(x) for x in uv):
+                            errors.append(("MESH_NON_FINITE_UV", "Non-finite UV"))
+                            break
+
+                    slot_idx = tri.get("material_slot_index", 0)
+                    if slot_count > 0 and (slot_idx < 0 or slot_idx >= slot_count):
+                        errors.append(("MESH_INVALID_MATERIAL_SLOT_INDEX", f"Invalid slot index {slot_idx}"))
+                        break
+
+            # Object mesh references
+            for obj in objects:
+                if obj.get("type") == "STATIC_MESH" and obj.get("mesh_reference"):
+                    ref_id = obj["mesh_reference"].get("mesh_id")
+                    if ref_id and ref_id not in meshes:
+                        errors.append(("OBJECT_BROKEN_MESH_REF", f"Object references missing mesh {ref_id}"))
+
         return errors, warnings
 
 
 class TestUnrealPackageReaderFixtures(unittest.TestCase):
-    """Test validation of all 13 fixtures against the reader's validation rules."""
+    """Test validation of all 16 fixtures against the reader's validation rules."""
 
     def _load_fixture(self, name):
         pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
@@ -230,45 +279,52 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
             scene = json.load(f)
         with open(pkg_dir / "objects.json", "r", encoding="utf-8") as f:
             objects_data = json.load(f)
-        return manifest, scene, objects_data["objects"]
+        meshes = {}
+        mesh_dir = pkg_dir / "meshes"
+        if mesh_dir.exists():
+            for m_file in mesh_dir.glob("*.json"):
+                with open(m_file, "r", encoding="utf-8") as f:
+                    m_data = json.load(f)
+                    meshes[m_data.get("mesh_id", m_file.stem)] = m_data
+        return manifest, scene, objects_data["objects"], meshes
 
     def test_fixture_01_identity_valid(self):
-        m, s, o = self._load_fixture("01_identity_scene")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("01_identity_scene")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
 
     def test_fixture_02_translated_valid(self):
-        m, s, o = self._load_fixture("02_single_translated")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("02_single_translated")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.translation, UnrealVector(250.0, -100.0, 50.0))
 
     def test_fixture_03_rotated_valid(self):
-        m, s, o = self._load_fixture("03_rotated_object")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("03_rotated_object")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         quat = BridgeTransformConverter.to_unreal_rotation(o[0]["transform"]["rotation_quaternion"])
         self.assertAlmostEqual(quat.size_squared(), 1.0, delta=1e-3)
 
     def test_fixture_04_scaled_valid(self):
-        m, s, o = self._load_fixture("04_scaled_object")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("04_scaled_object")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.scale, UnrealVector(2.0, 0.5, 3.0))
 
     def test_fixture_05_negative_scale_valid(self):
-        m, s, o = self._load_fixture("05_negative_scale")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("05_negative_scale")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.scale, UnrealVector(-1.0, 1.0, 1.0))
         self.assertTrue(o[0]["transform"]["has_negative_scale"])
 
     def test_fixture_06_parent_child_valid(self):
-        m, s, o = self._load_fixture("06_parent_child")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("06_parent_child")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         self.assertEqual(len(o), 2)
         parent_xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
@@ -278,8 +334,8 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(child_world.translation, UnrealVector(100.0, 50.0, 0.0))
 
     def test_fixture_07_deep_hierarchy_valid(self):
-        m, s, o = self._load_fixture("07_deep_hierarchy")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("07_deep_hierarchy")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertEqual(len(errors), 0)
         gp_xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         p_xform = BridgeTransformConverter.to_unreal_local_transform(o[1]["transform"])
@@ -289,34 +345,53 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(child_world.translation, UnrealVector(100.0, 50.0, 100.0))
 
     def test_fixture_08_invalid_manifest_detected(self):
-        m, s, o = self._load_fixture("08_invalid_manifest")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("08_invalid_manifest")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any(code == "MANIFEST_INVALID_FORMAT" for code, _ in errors))
 
     def test_fixture_09_duplicate_id_detected(self):
-        m, s, o = self._load_fixture("09_duplicate_id")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("09_duplicate_id")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any(code == "OBJECT_DUPLICATE_ID" for code, _ in errors))
 
     def test_fixture_10_broken_parent_detected(self):
-        m, s, o = self._load_fixture("10_broken_parent")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("10_broken_parent")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any(code == "OBJECT_BROKEN_PARENT_REF" for code, _ in errors))
 
     def test_fixture_11_hierarchy_cycle_detected(self):
-        m, s, o = self._load_fixture("11_hierarchy_cycle")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("11_hierarchy_cycle")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any(code == "OBJECT_HIERARCHY_CYCLE" for code, _ in errors))
 
     def test_fixture_12_invalid_transform_detected(self):
-        m, s, o = self._load_fixture("12_invalid_transform")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("12_invalid_transform")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any("TRANSFORM" in code for code, _ in errors))
 
     def test_fixture_13_unsupported_version_detected(self):
-        m, s, o = self._load_fixture("13_unsupported_version")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o)
+        m, s, o, meshes = self._load_fixture("13_unsupported_version")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
         self.assertTrue(any(code == "MANIFEST_UNSUPPORTED_MAJOR_VERSION" for code, _ in errors))
+
+    def test_fixture_14_mesh_payload_valid(self):
+        m, s, o, meshes = self._load_fixture("14_mesh_payload")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertIn("mesh_00000001", meshes)
+        mesh = meshes["mesh_00000001"]
+        self.assertEqual(mesh["counts"]["vertex_count"], 4)
+        self.assertEqual(mesh["counts"]["triangle_count"], 2)
+
+    def test_fixture_15_broken_mesh_ref_detected(self):
+        m, s, o, meshes = self._load_fixture("15_broken_mesh_ref")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        self.assertTrue(any(code == "OBJECT_BROKEN_MESH_REF" for code, _ in errors))
+
+    def test_fixture_16_mesh_index_out_of_bounds_detected(self):
+        m, s, o, meshes = self._load_fixture("16_mesh_index_out_of_bounds")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        self.assertTrue(any(code == "MESH_INDEX_OUT_OF_BOUNDS" for code, _ in errors))
 
 
 class TestMilestone3Integration(unittest.TestCase):
@@ -359,6 +434,120 @@ class TestMilestone3Integration(unittest.TestCase):
         # TableMesh world = mesh_local * locator_world
         mesh_world = mesh_xform * loc_xform
         self.assertEqual(mesh_world.translation, UnrealVector(200.0, 100.0, 400.0))
+
+
+class TestMilestone5MeshValidation(unittest.TestCase):
+    """Direct validation tests for Milestone 5 mesh payloads and attributes."""
+
+    def setUp(self):
+        self.base_manifest = {
+            "format": "BUBRIDGE", "version": "0.1.0",
+            "coordinate_system": {
+                "up_axis": "Z", "forward_axis": "X", "right_axis": "Y",
+                "handedness": "left_handed", "unit": "centimeter"
+            }
+        }
+        self.base_scene = {"name": "TestScene", "collections": []}
+        self.base_object = {
+            "id": "obj_00000001", "name": "TestObj", "type": "STATIC_MESH",
+            "transform": {
+                "location": [0.0, 0.0, 0.0],
+                "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+                "scale": [1.0, 1.0, 1.0]
+            },
+            "mesh_reference": {
+                "mesh_id": "mesh_00000001",
+                "file": "meshes/mesh_00000001.json",
+                "submesh_index": 0
+            }
+        }
+        self.valid_mesh = {
+            "format": "BUBRIDGE_MESH", "version": "0.1.0",
+            "mesh_id": "mesh_00000001", "name": "CubeMesh",
+            "counts": {"vertex_count": 3, "triangle_count": 1},
+            "vertices": [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]],
+            "triangles": [{
+                "vertex_indices": [0, 1, 2],
+                "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                "uvs": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                "material_slot_index": 0
+            }],
+            "material_slots": [{"slot_index": 0, "slot_name": "M_Default"}]
+        }
+
+    def test_valid_mesh(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": self.valid_mesh}
+        )
+        self.assertEqual(len(errs), 0)
+
+    def test_invalid_mesh_format(self):
+        bad_mesh = dict(self.valid_mesh)
+        bad_mesh["format"] = "INVALID_FORMAT"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": bad_mesh}
+        )
+        self.assertTrue(any(code == "MESH_INVALID_FORMAT" for code, _ in errs))
+
+    def test_invalid_mesh_id_format(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            {"invalid_id": self.valid_mesh}
+        )
+        self.assertTrue(any(code == "MESH_INVALID_ID_FORMAT" for code, _ in errs))
+
+    def test_non_finite_vertex(self):
+        bad_mesh = dict(self.valid_mesh)
+        bad_mesh["vertices"] = [[float("nan"), 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 100.0, 0.0]]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": bad_mesh}
+        )
+        self.assertTrue(any(code == "MESH_NON_FINITE_COORDINATE" for code, _ in errs))
+
+    def test_non_finite_normal(self):
+        bad_mesh = dict(self.valid_mesh)
+        bad_mesh["triangles"] = [{
+            "vertex_indices": [0, 1, 2],
+            "normals": [[float("inf"), 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            "material_slot_index": 0
+        }]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": bad_mesh}
+        )
+        self.assertTrue(any(code == "MESH_NON_FINITE_NORMAL" for code, _ in errs))
+
+    def test_non_finite_uv(self):
+        bad_mesh = dict(self.valid_mesh)
+        bad_mesh["triangles"] = [{
+            "vertex_indices": [0, 1, 2],
+            "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[float("nan"), 0.0], [1.0, 0.0], [0.0, 1.0]],
+            "material_slot_index": 0
+        }]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": bad_mesh}
+        )
+        self.assertTrue(any(code == "MESH_NON_FINITE_UV" for code, _ in errs))
+
+    def test_invalid_material_slot_index(self):
+        bad_mesh = dict(self.valid_mesh)
+        bad_mesh["triangles"] = [{
+            "vertex_indices": [0, 1, 2],
+            "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            "material_slot_index": 99  # Slot 99 does not exist (count: 1)
+        }]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [self.base_object],
+            {"mesh_00000001": bad_mesh}
+        )
+        self.assertTrue(any(code == "MESH_INVALID_MATERIAL_SLOT_INDEX" for code, _ in errs))
 
 
 if __name__ == "__main__":

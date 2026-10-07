@@ -69,7 +69,7 @@ IDENTITY_XFORM = {
 }
 
 
-def write_fixture(name: str, manifest: dict, scene: dict, objects: list):
+def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes: dict = None):
     pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
     if pkg_dir.exists():
         shutil.rmtree(pkg_dir)
@@ -81,10 +81,16 @@ def write_fixture(name: str, manifest: dict, scene: dict, objects: list):
     manifest_copy = dict(manifest)
     manifest_copy["content_summary"] = dict(manifest_copy.get("content_summary", {}))
     manifest_copy["content_summary"]["object_count"] = len(objects)
+    manifest_copy["content_summary"]["mesh_count"] = len(meshes) if meshes else 0
 
     (pkg_dir / "manifest.json").write_text(json.dumps(manifest_copy, indent=2), encoding="utf-8")
     (pkg_dir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
     (pkg_dir / "objects.json").write_text(json.dumps({"objects": objects}, indent=2), encoding="utf-8")
+
+    if meshes:
+        for mesh_id, mesh_data in meshes.items():
+            (pkg_dir / "meshes" / f"{mesh_id}.json").write_text(json.dumps(mesh_data, indent=2), encoding="utf-8")
+
     report = {
         "timestamp": FIXED_TIMESTAMP,
         "status": "SUCCESS",
@@ -416,7 +422,149 @@ def generate_all_fixtures():
         }]
     )
 
-    print(f"Generated 13 test fixtures in {FIXTURES_DIR}")
+    # 14. Valid Mesh Payload
+    valid_mesh = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MESH",
+        "version": "0.1.0",
+        "mesh_id": "mesh_00000001",
+        "name": "TestCubeMesh",
+        "source": {
+            "application": "Blender",
+            "version": "4.5.3 LTS"
+        },
+        "coordinate_system": {
+            "up_axis": "Z",
+            "forward_axis": "X",
+            "right_axis": "Y",
+            "handedness": "left_handed",
+            "unit": "centimeter"
+        },
+        "counts": {
+            "vertex_count": 4,
+            "triangle_count": 2,
+            "uv_layer_count": 1,
+            "material_slot_count": 1
+        },
+        "bounds": {
+            "min": [-50.0, -50.0, 0.0],
+            "max": [50.0, 50.0, 100.0]
+        },
+        "vertices": [
+            [-50.0, -50.0, 0.0],
+            [50.0, -50.0, 0.0],
+            [50.0, 50.0, 0.0],
+            [-50.0, 50.0, 0.0]
+        ],
+        "triangles": [
+            {
+                "vertex_indices": [0, 2, 1],
+                "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                "uvs": [[0.0, 0.0], [1.0, 1.0], [1.0, 0.0]],
+                "material_slot_index": 0
+            },
+            {
+                "vertex_indices": [0, 3, 2],
+                "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                "uvs": [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+                "material_slot_index": 0
+            }
+        ],
+        "material_slots": [
+            {
+                "slot_index": 0,
+                "slot_name": "M_Default",
+                "material_id": None
+            }
+        ]
+    }
+
+    write_fixture(
+        "14_mesh_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000012",
+            "name": "MeshObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000001",
+                "file": "meshes/mesh_00000001.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_Default",
+                    "material_id": None
+                }
+            ]
+        }],
+        meshes={"mesh_00000001": valid_mesh}
+    )
+
+    # 15. Broken Mesh Reference
+    write_fixture(
+        "15_broken_mesh_ref",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000013",
+            "name": "BrokenMeshObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_99999999",
+                "file": "meshes/mesh_99999999.json",
+                "submesh_index": 0
+            },
+            "material_slots": []
+        }],
+        meshes={}
+    )
+
+    # 16. Out-of-bounds Triangle Index
+    bad_index_mesh = dict(valid_mesh)
+    bad_index_mesh["mesh_id"] = "mesh_00000002"
+    bad_index_mesh["triangles"] = [
+        {
+            "vertex_indices": [0, 999, 1],  # Index 999 out of bounds (vertex count: 4)
+            "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[0.0, 0.0], [1.0, 1.0], [1.0, 0.0]],
+            "material_slot_index": 0
+        }
+    ]
+
+    write_fixture(
+        "16_mesh_index_out_of_bounds",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000014",
+            "name": "BadMeshObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000002",
+                "file": "meshes/mesh_00000002.json",
+                "submesh_index": 0
+            },
+            "material_slots": []
+        }],
+        meshes={"mesh_00000002": bad_index_mesh}
+    )
+
+    print(f"Generated 16 test fixtures in {FIXTURES_DIR}")
 
 
 if __name__ == "__main__":

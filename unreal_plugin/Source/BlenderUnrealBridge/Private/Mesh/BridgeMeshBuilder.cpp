@@ -95,7 +95,8 @@ UStaticMesh* FBridgeMeshBuilder::CreateStaticMesh(
 	MeshDescriptionPtrs.Add(&MeshDescription);
 
 	UStaticMesh::FBuildMeshDescriptionsParams BuildParams;
-	BuildParams.bBuildRenderData = true;
+	// Default params: bCommitMeshDescription=true, bFastBuild=false → full render data build.
+	// Note: bBuildRenderData does NOT exist in UE 5.8's FBuildMeshDescriptionsParams.
 
 	if (!StaticMesh->BuildFromMeshDescriptions(MeshDescriptionPtrs, BuildParams))
 	{

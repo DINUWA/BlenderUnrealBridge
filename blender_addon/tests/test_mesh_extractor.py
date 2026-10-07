@@ -192,5 +192,14 @@ class TestMeshExtractor(unittest.TestCase):
         self.assertEqual(data_a, data_b)
 
 
+def run():
+    # Blender injects its own argv; isolate unittest from blender flags.
+    sys.argv = [sys.argv[0]]
+    suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    sys.exit(0 if result.wasSuccessful() else 1)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    run()
