@@ -198,6 +198,28 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 };
 
 /**
+ * Canonical Bridge PBR material representation from materials/<material_id>.json.
+ * Strictly non-textured scalar/color properties for Milestone 6.
+ */
+struct BLENDERUNREALBRIDGE_API FBridgeMaterialData
+{
+	FString Format;
+	FString Version;
+	FString MaterialId;
+	FString Name;
+	FString Model;
+
+	FLinearColor BaseColor = FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
+	float Metallic = 0.0f;
+	float Roughness = 0.5f;
+	float Specular = 0.5f;
+	float IOR = 1.5f;
+	float Opacity = 1.0f;
+	FString BlendMode = TEXT("OPAQUE");
+	bool bTwoSided = false;
+};
+
+/**
  * Complete in-memory Bridge Package model loaded from a .bubridge package.
  */
 struct BLENDERUNREALBRIDGE_API FBridgePackageData
@@ -207,6 +229,7 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	FBridgeScene Scene;
 	TArray<FBridgeObject> Objects;
 	TMap<FString, FBridgeMeshData> Meshes;
+	TMap<FString, FBridgeMaterialData> Materials;
 
 	/** Fast lookup index mapping Bridge ID -> Object index in Objects array */
 	TMap<FString, int32> IdToIndexMap;
@@ -224,6 +247,11 @@ struct BLENDERUNREALBRIDGE_API FBridgePackageData
 	const FBridgeMeshData* FindMeshById(const FString& InMeshId) const
 	{
 		return Meshes.Find(InMeshId);
+	}
+
+	const FBridgeMaterialData* FindMaterialById(const FString& InMaterialId) const
+	{
+		return Materials.Find(InMaterialId);
 	}
 
 	void RebuildIdMap()

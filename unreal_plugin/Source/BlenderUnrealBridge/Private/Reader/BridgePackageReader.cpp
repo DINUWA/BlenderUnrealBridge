@@ -47,18 +47,21 @@ bool FBridgePackageReader::LoadPackage(
 	// 5. Load referenced mesh assets from meshes/
 	LoadMeshes(PackageDirectory, OutPackageData.Objects, OutPackageData.Meshes, OutReport);
 
-	// 6. Build fast lookup ID map
+	// 6. Load material assets from materials/
+	LoadMaterials(PackageDirectory, OutPackageData.Materials, OutReport);
+
+	// 7. Build fast lookup ID map
 	OutPackageData.RebuildIdMap();
 
-	// 7. Execute full protocol validation
+	// 8. Execute full protocol validation
 	if (!FBridgePackageValidator::ValidatePackage(OutPackageData, OutReport))
 	{
-		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, or hierarchy failed validation"));
+		OutReport.AddError(TEXT("PACKAGE_VALIDATION_FAILED"), TEXT("Package metadata, meshes, materials, or hierarchy failed validation"));
 		return false;
 	}
 
-	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects and %d meshes"),
-		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num()));
+	OutReport.AddInfo(TEXT("PACKAGE_LOAD_SUCCESS"), FString::Printf(TEXT("Successfully loaded package '%s' with %d objects, %d meshes, and %d materials"),
+		*OutPackageData.Scene.Name, OutPackageData.Objects.Num(), OutPackageData.Meshes.Num(), OutPackageData.Materials.Num()));
 
 	return true;
 }
@@ -593,4 +596,92 @@ FTransform FBridgePackageReader::GetUnrealWorldTransform(
 	}
 
 	return AccumulatedTransform;
+}
+
+bool FBridgePackageReader::ParseMaterial(
+	const TSharedPtr<FJsonObject>& JsonObject,
+	FBridgeMaterialData& OutMaterial,
+	FBridgeValidationReport& OutReport)
+{
+	if (!JsonObject.IsValid())
+	{
+		return false;
+	}
+
+	JsonObject->TryGetStringField(TEXT("format"), OutMaterial.Format);
+	JsonObject->TryGetStringField(TEXT("version"), OutMaterial.Version);
+	JsonObject->TryGetStringField(TEXT("material_id"), OutMaterial.MaterialId);
+	JsonObject->TryGetStringField(TEXT("name"), OutMaterial.Name);
+	JsonObject->TryGetStringField(TEXT("model"), OutMaterial.Model);
+
+	// Base color
+	const TArray<TSharedPtr<FJsonValue>>* BaseColorArray = nullptr;
+	if (JsonObject->TryGetArrayField(TEXT("base_color"), BaseColorArray) && BaseColorArray && BaseColorArray->Num() >= 3)
+	{
+		float R = static_cast<float>((*BaseColorArray)[0]->AsNumber());
+		float G = static_cast<float>((*BaseColorArray)[1]->AsNumber());
+		float B = static_cast<float>((*BaseColorArray)[2]->AsNumber());
+		float A = BaseColorArray->Num() >= 4 ? static_cast<float>((*BaseColorArray)[3]->AsNumber()) : 1.0f;
+		OutMaterial.BaseColor = FLinearColor(R, G, B, A);
+	}
+
+	double Val = 0.0;
+	if (JsonObject->TryGetNumberField(TEXT("metallic"), Val))
+	{
+		OutMaterial.Metallic = static_cast<float>(Val);
+	}
+	if (JsonObject->TryGetNumberField(TEXT("roughness"), Val))
+	{
+		OutMaterial.Roughness = static_cast<float>(Val);
+	}
+	if (JsonObject->TryGetNumberField(TEXT("specular"), Val))
+	{
+		OutMaterial.Specular = static_cast<float>(Val);
+	}
+	if (JsonObject->TryGetNumberField(TEXT("ior"), Val))
+	{
+		OutMaterial.IOR = static_cast<float>(Val);
+	}
+	if (JsonObject->TryGetNumberField(TEXT("opacity"), Val))
+	{
+		OutMaterial.Opacity = static_cast<float>(Val);
+	}
+
+	JsonObject->TryGetStringField(TEXT("blend_mode"), OutMaterial.BlendMode);
+	JsonObject->TryGetBoolField(TEXT("two_sided"), OutMaterial.bTwoSided);
+
+	return true;
+}
+
+bool FBridgePackageReader::LoadMaterials(
+	const FString& PackageDirectory,
+	TMap<FString, FBridgeMaterialData>& OutMaterials,
+	FBridgeValidationReport& OutReport)
+{
+	FString MaterialsDir = FPaths::Combine(PackageDirectory, TEXT("materials"));
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	if (!PlatformFile.DirectoryExists(*MaterialsDir))
+	{
+		return true;
+	}
+
+	TArray<FString> MaterialFiles;
+	IFileManager::Get().FindFiles(MaterialFiles, *FPaths::Combine(MaterialsDir, TEXT("*.json")), true, false);
+
+	for (const FString& Filename : MaterialFiles)
+	{
+		FString FullPath = FPaths::Combine(MaterialsDir, Filename);
+		TSharedPtr<FJsonObject> MatJson;
+		if (ReadJsonFile(FullPath, MatJson, OutReport))
+		{
+			FBridgeMaterialData MatData;
+			if (ParseMaterial(MatJson, MatData, OutReport))
+			{
+				OutMaterials.Add(MatData.MaterialId, MatData);
+			}
+		}
+	}
+
+	return true;
 }

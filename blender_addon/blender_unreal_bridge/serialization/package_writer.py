@@ -22,6 +22,7 @@ import bpy
 
 from ..collectors.scene_collector import collect_scene
 from ..geometry.mesh_extractor import extract_mesh_data
+from ..materials.material_extractor import extract_material_data
 from ..version import FORMAT_NAME, FORMAT_VERSION, VERSION_STRING
 from .json_serializer import serialize_json
 from .package_validator import PackageValidator, ValidationResult
@@ -100,9 +101,10 @@ def build_package_data(
     # Sort collections deterministically by ID
     collections_list.sort(key=lambda c: c["id"])
 
-    # 3. Build Objects List and Mesh Payloads
+    # 3. Build Objects List, Mesh Payloads, and Material Payloads
     objects_list: List[Dict[str, Any]] = []
     meshes_dict: Dict[str, Dict[str, Any]] = {}
+    materials_dict: Dict[str, Dict[str, Any]] = {}
 
     for meta in inspection.objects:
         obj = scene.objects.get(meta.name)
@@ -149,6 +151,18 @@ def build_package_data(
                 mat_slots = mesh_data.get("material_slots", [])
             except Exception as exc:
                 inspection.errors.append(f"Failed to extract mesh geometry for '{meta.name}': {exc}")
+
+        # Extract material datablocks from object slots
+        if obj is not None and hasattr(obj, "material_slots"):
+            for slot in obj.material_slots:
+                if slot.material:
+                    try:
+                        mat_data = extract_material_data(slot.material)
+                        mat_id = mat_data["material_id"]
+                        if mat_id not in materials_dict:
+                            materials_dict[mat_id] = mat_data
+                    except Exception as exc:
+                        inspection.errors.append(f"Failed to extract material for slot '{slot.name}': {exc}")
 
         obj_data = {
             "id": meta.bubridge_id,
@@ -214,7 +228,7 @@ def build_package_data(
         "content_summary": {
             "object_count": len(objects_list),
             "mesh_count": len(meshes_dict),
-            "material_count": 0,
+            "material_count": len(materials_dict),
             "texture_count": 0,
         },
     }
@@ -222,7 +236,9 @@ def build_package_data(
     objects_dict = {"objects": objects_list}
 
     # 6. Run validation
-    validation_result = PackageValidator.validate_package(manifest_dict, scene_dict, objects_dict, meshes=meshes_dict)
+    validation_result = PackageValidator.validate_package(
+        manifest_dict, scene_dict, objects_dict, meshes=meshes_dict, materials=materials_dict
+    )
 
     # Transfer inspection warnings/errors into the validation result
     for w in inspection.warnings:
@@ -235,6 +251,7 @@ def build_package_data(
         "scene": scene_dict,
         "objects": objects_dict,
         "meshes": meshes_dict,
+        "materials": materials_dict,
         "validation_result": validation_result,
         "timestamp": timestamp,
     }
@@ -307,9 +324,16 @@ def write_bridge_package(
             mesh_content = serialize_json(mesh_data)
             (meshes_dir / f"{mesh_id}.json").write_text(mesh_content, encoding="utf-8")
 
+        # 6. Create materials directory and write material assets
+        materials_dir = stage_dir / "materials"
+        materials_dir.mkdir(exist_ok=True)
+        for mat_id, mat_data in package_data.get("materials", {}).items():
+            mat_content = serialize_json(mat_data)
+            (materials_dir / f"{mat_id}.json").write_text(mat_content, encoding="utf-8")
+
         (stage_dir / "textures").mkdir(exist_ok=True)
 
-        # 6. Finalize: Atomic move/replace
+        # 7. Finalize: Atomic move/replace
         if package_dir.exists():
             shutil.rmtree(package_dir)
         stage_dir.rename(package_dir)

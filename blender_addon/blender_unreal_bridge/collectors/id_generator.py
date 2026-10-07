@@ -114,3 +114,56 @@ def get_mesh_id(mesh) -> str | None:
     value = mesh.get(BUBRIDGE_ID_KEY)
     return str(value) if value is not None else None
 
+
+def _generate_material_id() -> str:
+    """Generate a new unique Bridge Material ID string in the format 'mat_XXXXXXXX'."""
+    return "mat_" + uuid.uuid4().hex[:8]
+
+
+def ensure_material_id(material) -> str:
+    """
+    Return the existing bubridge_id for a Blender Material datablock, or generate and
+    assign a new one if none exists.
+
+    Args:
+        material: A bpy.types.Material instance.
+
+    Returns:
+        The stable string Bridge Material ID for this material datablock.
+    """
+    existing = material.get(BUBRIDGE_ID_KEY)
+    if existing:
+        return str(existing)
+
+    new_id = _generate_material_id()
+    material[BUBRIDGE_ID_KEY] = new_id
+    return new_id
+
+
+def get_material_id(material) -> str | None:
+    """
+    Return the existing bubridge_id for a Blender Material datablock without creating one.
+
+    Args:
+        material: A bpy.types.Material instance.
+
+    Returns:
+        The existing Material ID string, or None if the material has no bubridge_id.
+    """
+    value = material.get(BUBRIDGE_ID_KEY)
+    return str(value) if value is not None else None
+
+
+def has_material_id(material) -> bool:
+    """
+    Return True if the material already has a bubridge_id assigned.
+
+    Args:
+        material: A bpy.types.Material instance.
+
+    Returns:
+        True if the material has a bubridge_id custom property.
+    """
+    return BUBRIDGE_ID_KEY in material
+
+

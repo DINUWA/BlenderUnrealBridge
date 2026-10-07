@@ -5,6 +5,8 @@
 #include "Core/BridgeDiagnostics.h"
 #include "Engine/StaticMesh.h"
 
+#include "Materials/MaterialInterface.h"
+
 /**
  * Builds native Unreal Engine UStaticMesh assets from canonical Bridge mesh data.
  */
@@ -18,11 +20,13 @@ public:
 	 * @param Name Name for the new UStaticMesh asset
 	 * @param MeshData Canonical mesh geometry and slot data
 	 * @param OutReport Diagnostic report collecting any warnings or errors
+	 * @param MaterialMap Optional map of MaterialId -> UMaterialInterface* to assign to slots
 	 * @return Created UStaticMesh or nullptr on failure
 	 */
 	static UStaticMesh* CreateStaticMesh(
 		UObject* Outer,
 		const FName& Name,
 		const FBridgeMeshData& MeshData,
-		FBridgeValidationReport& OutReport);
+		FBridgeValidationReport& OutReport,
+		const TMap<FString, UMaterialInterface*>& MaterialMap = TMap<FString, UMaterialInterface*>());
 };

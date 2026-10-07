@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_BAD_FORMAT",
+  "version": "0.1.0",
+  "material_id": "invalid_id_not_mat",
+  "name": "M_BadSchema",
+  "model": "UNKNOWN_MODEL",
+  "properties": {
+    "base_color": [
+      0.8,
+      0.8,
+      0.8,
+      1.0
+    ]
+  }
+}

@@ -86,4 +86,14 @@ private:
 		const TArray<FBridgeObject>& Objects,
 		TMap<FString, FBridgeMeshData>& OutMeshes,
 		FBridgeValidationReport& OutReport);
+
+	static bool ParseMaterial(
+		const TSharedPtr<class FJsonObject>& JsonObject,
+		FBridgeMaterialData& OutMaterial,
+		FBridgeValidationReport& OutReport);
+
+	static bool LoadMaterials(
+		const FString& PackageDirectory,
+		TMap<FString, FBridgeMaterialData>& OutMaterials,
+		FBridgeValidationReport& OutReport);
 };

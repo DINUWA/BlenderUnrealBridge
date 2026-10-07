@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 6] - 2026-10-07
+
+### Added
+- `blender_addon/blender_unreal_bridge/collectors/id_generator.py`:
+  - Added `_generate_material_id()`, `ensure_material_id()`, `get_material_id()`, and `has_material_id()` to generate and maintain stable `mat_<8 hex chars>` on `bpy.types.Material` datablocks.
+- `blender_addon/blender_unreal_bridge/materials/__init__.py` & `material_extractor.py`:
+  - `extract_material_data()` extracting semantic non-textured PBR properties from Blender materials conforming to `BUBRIDGE_MATERIAL` v0.1.0 and `PBR_METALLIC_ROUGHNESS`.
+  - Principled BSDF node inspection extracting Base Color (RGBA), Metallic `[0.0, 1.0]`, Roughness `[0.0, 1.0]`, Specular `[0.0, 1.0]` (supporting both Blender 4.0+ "Specular IOR Level" and legacy "Specular"), IOR, Opacity, BlendMode, and TwoSided.
+  - Fallback extraction for materials without node trees or legacy diffuse color configurations.
+  - Automatic handling of Blender 4.2+ default `HASHED` blend method, mapping to `OPAQUE` when alpha $\ge 0.999$, and defaulting `two_sided` to `false` for game engine PBR conventions.
+- `blender_addon/blender_unreal_bridge/geometry/mesh_extractor.py`:
+  - Integrated material ID assignment: mesh material slots now resolve and record stable material IDs (`ensure_material_id(slot.material)`) instead of placeholder strings.
+- `blender_addon/blender_unreal_bridge/serialization/package_validator.py`:
+  - Added `MATERIAL_ID_PATTERN` (`^mat_[0-9a-f]{8}$`).
+  - Added `validate_material()` validating format, model, finite color ranges `[0.0, 1.0]`, metallic, roughness, and specular bounds.
+  - Updated `validate_package()` to validate materials and enforce slot referential integrity (`OBJECT_BROKEN_MATERIAL_REF`, `MESH_BROKEN_MATERIAL_REF`).
+- `blender_addon/blender_unreal_bridge/serialization/package_writer.py`:
+  - Extracted referenced materials into `materials_dict`.
+  - Serialized individual atomic files `materials/<material_id>.json`.
+  - Populated `content_summary.material_count` in `manifest.json`.
+  - Passed materials to validator during atomic package writing.
+- `blender_addon/tests/test_material_extractor.py`:
+  - 15 unit and integration tests covering material ID stability, Principled BSDF extraction, fallback handling, blend modes, slot integration, package serialization, and validation.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h`:
+  - Added `FBridgeMaterialData` representing canonical PBR material properties.
+  - Updated `FBridgePackageData` with `Materials` map (`TMap<FString, FBridgeMaterialData>`) and `FindMaterialById()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageValidator.h` & `Private/Reader/BridgePackageValidator.cpp`:
+  - Implemented `IsValidMaterialId()`, `ValidateMaterial()`, `ValidateMaterials()`, and hooked material validation and slot referential checks into `ValidatePackage()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageReader.h` & `Private/Reader/BridgePackageReader.cpp`:
+  - Implemented `ParseMaterial()`, `LoadMaterials()`, and added step 6 in `LoadPackage()` to deserialize `materials/*.json`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Material/BridgeMaterialBuilder.h` & `Private/Material/BridgeMaterialBuilder.cpp`:
+  - Implemented `FBridgeMaterialBuilder::CreateMaterial()` creating native `UMaterialInstanceDynamic` from `FBridgeMaterialData` with parameters for BaseColor, Metallic, Roughness, Specular, Opacity, and IOR.
+  - Implemented `FBridgeMaterialBuilder::CreateMaterialsForPackage()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Mesh/BridgeMeshBuilder.h` & `Private/Mesh/BridgeMeshBuilder.cpp`:
+  - Updated `FBridgeMeshBuilder::CreateStaticMesh()` to accept an optional `MaterialMap` and assign `UMaterialInterface` to mesh material slots both on the `FStaticMaterial` descriptor and `UStaticMesh::SetMaterial()`.
+- `scripts/generate_test_fixtures.py`:
+  - Extended fixture generator to output `materials/<material_id>.json` payloads.
+  - Added fixtures 17 (`17_material_payload`), 18 (`18_multi_material_payload`), 19 (`19_broken_material_ref`), 20 (`20_invalid_pbr_value`), 21 (`21_invalid_material_schema`).
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Expanded test suite from 24 to 37 tests, adding validation for fixtures 17-21 and dedicated `TestMilestone6MaterialValidation`.
+
+### Verification
+- Blender unit tests: 113/113 passed.
+- Unreal engine-independent tests: 37/37 passed.
+- Bridge Core C++ tests: 1/1 passed.
+- Unreal Engine 5.8 UBT compilation: 0 errors, 0 warnings (`UnrealEditor-BlenderUnrealBridge.dll` built).
+
 ## [Milestone 5] - 2026-10-07
 
 ### Added

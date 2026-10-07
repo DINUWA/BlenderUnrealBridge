@@ -44,6 +44,26 @@ bool FBridgePackageValidator::IsValidMeshId(const FString& Id)
 	return true;
 }
 
+bool FBridgePackageValidator::IsValidMaterialId(const FString& Id)
+{
+	// Expected format: "mat_" followed by at least 8 hexadecimal characters
+	if (!Id.StartsWith(TEXT("mat_")) || Id.Len() < 12)
+	{
+		return false;
+	}
+
+	for (int32 i = 4; i < Id.Len(); ++i)
+	{
+		TCHAR C = Id[i];
+		if (!FChar::IsHexDigit(C))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool FBridgePackageValidator::ValidatePackage(
 	const FBridgePackageData& PackageData,
 	FBridgeValidationReport& OutReport)
@@ -54,6 +74,7 @@ bool FBridgePackageValidator::ValidatePackage(
 	bValid &= ValidateScene(PackageData.Scene, OutReport);
 	bValid &= ValidateObjects(PackageData.Objects, OutReport);
 	bValid &= ValidateMeshes(PackageData.Meshes, PackageData.Objects, OutReport);
+	bValid &= ValidateMaterials(PackageData.Materials, PackageData.Meshes, PackageData.Objects, OutReport);
 
 	return bValid && OutReport.IsValid();
 }
@@ -461,6 +482,134 @@ bool FBridgePackageValidator::ValidateMeshes(
 					TEXT("OBJECT_BROKEN_MESH_REF"),
 					FString::Printf(TEXT("Object '%s' references non-existent mesh '%s'"), *Obj.Name, *MeshId),
 					Obj.Id);
+				bValid = false;
+			}
+		}
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateMaterial(
+	const FBridgeMaterialData& Material,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	if (Material.Format != TEXT("BUBRIDGE_MATERIAL"))
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_INVALID_FORMAT"),
+			FString::Printf(TEXT("Material '%s' format must be 'BUBRIDGE_MATERIAL', got '%s'"), *Material.MaterialId, *Material.Format),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	if (!IsValidMaterialId(Material.MaterialId))
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_INVALID_ID_FORMAT"),
+			FString::Printf(TEXT("Material '%s' has malformed Bridge Material ID '%s' (must be 'mat_<hex>')"), *Material.Name, *Material.MaterialId),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	if (Material.Model != TEXT("PBR_METALLIC_ROUGHNESS"))
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_INVALID_MODEL"),
+			FString::Printf(TEXT("Material '%s' model must be 'PBR_METALLIC_ROUGHNESS', got '%s'"), *Material.MaterialId, *Material.Model),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	// Base color validation
+	const FLinearColor& C = Material.BaseColor;
+	if (!FMath::IsFinite(C.R) || !FMath::IsFinite(C.G) || !FMath::IsFinite(C.B) || !FMath::IsFinite(C.A) ||
+		C.R < 0.0f || C.R > 1.0f || C.G < 0.0f || C.G > 1.0f || C.B < 0.0f || C.B > 1.0f || C.A < 0.0f || C.A > 1.0f)
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_OUT_OF_RANGE_BASE_COLOR"),
+			FString::Printf(TEXT("Material '%s' base_color channels must be finite numbers in [0.0, 1.0]"), *Material.MaterialId),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	// Metallic
+	if (!FMath::IsFinite(Material.Metallic) || Material.Metallic < 0.0f || Material.Metallic > 1.0f)
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_OUT_OF_RANGE_METALLIC"),
+			FString::Printf(TEXT("Material '%s' metallic must be a finite number in [0.0, 1.0], got %f"), *Material.MaterialId, Material.Metallic),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	// Roughness
+	if (!FMath::IsFinite(Material.Roughness) || Material.Roughness < 0.0f || Material.Roughness > 1.0f)
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_OUT_OF_RANGE_ROUGHNESS"),
+			FString::Printf(TEXT("Material '%s' roughness must be a finite number in [0.0, 1.0], got %f"), *Material.MaterialId, Material.Roughness),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	// Specular
+	if (!FMath::IsFinite(Material.Specular) || Material.Specular < 0.0f || Material.Specular > 1.0f)
+	{
+		OutReport.AddError(
+			TEXT("MATERIAL_OUT_OF_RANGE_SPECULAR"),
+			FString::Printf(TEXT("Material '%s' specular must be a finite number in [0.0, 1.0], got %f"), *Material.MaterialId, Material.Specular),
+			Material.MaterialId);
+		bValid = false;
+	}
+
+	return bValid;
+}
+
+bool FBridgePackageValidator::ValidateMaterials(
+	const TMap<FString, FBridgeMaterialData>& Materials,
+	const TMap<FString, FBridgeMeshData>& Meshes,
+	const TArray<FBridgeObject>& Objects,
+	FBridgeValidationReport& OutReport)
+{
+	bool bValid = true;
+
+	// Validate individual materials
+	for (const auto& Pair : Materials)
+	{
+		bValid &= ValidateMaterial(Pair.Value, OutReport);
+	}
+
+	// Validate object material slot references
+	for (const FBridgeObject& Obj : Objects)
+	{
+		for (const FBridgeMaterialSlot& Slot : Obj.MaterialSlots)
+		{
+			if (!Slot.MaterialId.IsEmpty() && !Materials.Contains(Slot.MaterialId))
+			{
+				OutReport.AddError(
+					TEXT("OBJECT_BROKEN_MATERIAL_REF"),
+					FString::Printf(TEXT("Object '%s' slot '%s' references non-existent material '%s'"), *Obj.Name, *Slot.SlotName, *Slot.MaterialId),
+					Obj.Id);
+				bValid = false;
+			}
+		}
+	}
+
+	// Validate mesh material slot references
+	for (const auto& MeshPair : Meshes)
+	{
+		const FBridgeMeshData& Mesh = MeshPair.Value;
+		for (const FBridgeMaterialSlot& Slot : Mesh.MaterialSlots)
+		{
+			if (!Slot.MaterialId.IsEmpty() && !Materials.Contains(Slot.MaterialId))
+			{
+				OutReport.AddError(
+					TEXT("MESH_BROKEN_MATERIAL_REF"),
+					FString::Printf(TEXT("Mesh '%s' slot '%s' references non-existent material '%s'"), *Mesh.MeshId, *Slot.SlotName, *Slot.MaterialId),
+					Mesh.MeshId);
 				bValid = false;
 			}
 		}

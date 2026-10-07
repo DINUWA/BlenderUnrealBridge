@@ -60,6 +60,23 @@ public:
 		const TArray<FBridgeObject>& Objects,
 		FBridgeValidationReport& OutReport);
 
+	/**
+	 * Validates a single canonical PBR material payload.
+	 */
+	static bool ValidateMaterial(
+		const FBridgeMaterialData& Material,
+		FBridgeValidationReport& OutReport);
+
+	/**
+	 * Validates all loaded materials and verifies referential integrity from objects and meshes.
+	 */
+	static bool ValidateMaterials(
+		const TMap<FString, FBridgeMaterialData>& Materials,
+		const TMap<FString, FBridgeMeshData>& Meshes,
+		const TArray<FBridgeObject>& Objects,
+		FBridgeValidationReport& OutReport);
+
 	static bool IsValidBridgeId(const FString& Id);
 	static bool IsValidMeshId(const FString& Id);
+	static bool IsValidMaterialId(const FString& Id);
 };

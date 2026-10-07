@@ -18,19 +18,19 @@ To ensure stability, maintainability, and clean architecture, all development on
 
 Development is organized sequentially into discrete milestones. Each milestone must pass its verification criteria before proceeding to the next.
 
-| Milestone | Title | Focus Area | Deliverables |
-| :--- | :--- | :--- | :--- |
-| **Milestone 0** | **Project Skeleton** | Repository Foundation | Directory skeletons, basic module files, build setup, CI test runners. |
-| **Milestone 1** | **Scene Inspection** | Blender Add-on Collector | Traversal of Blender scenes, object tagging with stable `bubridge_id`, collection membership. |
-| **Milestone 2** | **Transform System** | Canonical Transforms | Authoritative coordinate conversion (Blender RH Z-up $\rightarrow$ Canonical LH Z-up), unit scaling. |
-| **Milestone 3** | **Bridge Package** | Package Serializer/Validator | v0.1.0 JSON schemas (`manifest`, `scene`, `objects`), determinism, serialization validation. |
-| **Milestone 4** | **Unreal Reader** | Unreal Ingestion Skeleton | Unreal C++ plugin, package parser, manifest validation, logging. |
-| **Milestone 5** | **Static Mesh Pipeline** | Geometry Transfer | Mesh export/import, vertex buffers, UVs, normals, multiple objects and instances. |
-| **Milestone 6** | **PBR Material Translator** | Semantic Materials | Principled BSDF analyzer, fallback handling, Unreal dynamic material builder. |
-| **Milestone 7** | **Textures & UVs** | Texture Pipeline | Image discovery, path resolution, sRGB/Linear validation, packing, UV slot assignment. |
-| **Milestone 8** | **Hierarchy & Validation** | Outliner & Verification | Full parent-child hierarchy reconstruction, collection folders, error reporting. |
-| **Milestone 9** | **Animation Pipeline** | Skeletal & Keyframe Data | Skeletal mesh export, skinning weights, bone hierarchies, animation clips. |
-| **Milestone 10** | **Live Synchronization** | Real-Time Sync Layer | Socket/IPC delta transport, transform sync, live editing in Blender reflected in Unreal. |
+| Milestone | Title | Focus Area | Deliverables | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Milestone 0** | **Project Skeleton** | Repository Foundation | Directory skeletons, basic module files, build setup, CI test runners. | ✅ Complete |
+| **Milestone 1** | **Scene Inspection** | Blender Add-on Collector | Traversal of Blender scenes, object tagging with stable `bubridge_id`, collection membership. | ✅ Complete |
+| **Milestone 2** | **Transform System** | Canonical Transforms | Authoritative coordinate conversion (Blender RH Z-up $\rightarrow$ Canonical LH Z-up), unit scaling. | ✅ Complete |
+| **Milestone 3** | **Bridge Package** | Package Serializer/Validator | v0.1.0 JSON schemas (`manifest`, `scene`, `objects`), determinism, serialization validation. | ✅ Complete |
+| **Milestone 4** | **Unreal Reader** | Unreal Ingestion Skeleton | Unreal C++ plugin, package parser, manifest validation, logging. | ✅ Complete |
+| **Milestone 5** | **Static Mesh Pipeline** | Geometry Transfer | Mesh export/import, vertex buffers, UVs, normals, multiple objects and instances. | ✅ Complete |
+| **Milestone 6** | **PBR Material Translator** | Semantic Materials | Principled BSDF analyzer, fallback handling, Unreal dynamic material builder. | ✅ Complete |
+| **Milestone 7** | **Textures & UVs** | Texture Pipeline | Image discovery, path resolution, sRGB/Linear validation, packing, UV slot assignment. | ⏳ Next |
+| **Milestone 8** | **Hierarchy & Validation** | Outliner & Verification | Full parent-child hierarchy reconstruction, collection folders, error reporting. | ⏳ Planned |
+| **Milestone 9** | **Animation Pipeline** | Skeletal & Keyframe Data | Skeletal mesh export, skinning weights, bone hierarchies, animation clips. | ⏳ Planned |
+| **Milestone 10** | **Live Synchronization** | Real-Time Sync Layer | Socket/IPC delta transport, transform sync, live editing in Blender reflected in Unreal. | ⏳ Planned |
 
 ---
 

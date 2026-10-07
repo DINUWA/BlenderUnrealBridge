@@ -69,12 +69,13 @@ IDENTITY_XFORM = {
 }
 
 
-def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes: dict = None):
+def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes: dict = None, materials: dict = None):
     pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
     if pkg_dir.exists():
         shutil.rmtree(pkg_dir)
     pkg_dir.mkdir(parents=True, exist_ok=True)
     (pkg_dir / "meshes").mkdir(exist_ok=True)
+    (pkg_dir / "materials").mkdir(exist_ok=True)
     (pkg_dir / "textures").mkdir(exist_ok=True)
     (pkg_dir / "metadata").mkdir(exist_ok=True)
 
@@ -82,6 +83,7 @@ def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes:
     manifest_copy["content_summary"] = dict(manifest_copy.get("content_summary", {}))
     manifest_copy["content_summary"]["object_count"] = len(objects)
     manifest_copy["content_summary"]["mesh_count"] = len(meshes) if meshes else 0
+    manifest_copy["content_summary"]["material_count"] = len(materials) if materials else 0
 
     (pkg_dir / "manifest.json").write_text(json.dumps(manifest_copy, indent=2), encoding="utf-8")
     (pkg_dir / "scene.json").write_text(json.dumps(scene, indent=2), encoding="utf-8")
@@ -90,6 +92,10 @@ def write_fixture(name: str, manifest: dict, scene: dict, objects: list, meshes:
     if meshes:
         for mesh_id, mesh_data in meshes.items():
             (pkg_dir / "meshes" / f"{mesh_id}.json").write_text(json.dumps(mesh_data, indent=2), encoding="utf-8")
+
+    if materials:
+        for mat_id, mat_data in materials.items():
+            (pkg_dir / "materials" / f"{mat_id}.json").write_text(json.dumps(mat_data, indent=2), encoding="utf-8")
 
     report = {
         "timestamp": FIXED_TIMESTAMP,
@@ -564,7 +570,303 @@ def generate_all_fixtures():
         meshes={"mesh_00000002": bad_index_mesh}
     )
 
-    print(f"Generated 16 test fixtures in {FIXTURES_DIR}")
+    # 17. Valid Material Payload
+    mat_pbr_red = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000001",
+        "name": "M_RedRough",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.8, 0.1, 0.1, 1.0],
+            "metallic": 0.0,
+            "roughness": 0.8,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        }
+    }
+
+    mesh_with_mat = dict(valid_mesh)
+    mesh_with_mat["mesh_id"] = "mesh_00000003"
+    mesh_with_mat["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_RedRough",
+            "material_id": "mat_00000001"
+        }
+    ]
+
+    write_fixture(
+        "17_material_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000015",
+            "name": "MaterialObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000003",
+                "file": "meshes/mesh_00000003.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_RedRough",
+                    "material_id": "mat_00000001"
+                }
+            ]
+        }],
+        meshes={"mesh_00000003": mesh_with_mat},
+        materials={"mat_00000001": mat_pbr_red}
+    )
+
+    # 18. Multi-Material Payload
+    mat_pbr_blue = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000002",
+        "name": "M_BlueMetal",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.1, 0.2, 0.9, 1.0],
+            "metallic": 1.0,
+            "roughness": 0.2,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": True
+        }
+    }
+
+    multi_mat_mesh = dict(valid_mesh)
+    multi_mat_mesh["mesh_id"] = "mesh_00000004"
+    multi_mat_mesh["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_RedRough",
+            "material_id": "mat_00000001"
+        },
+        {
+            "slot_index": 1,
+            "slot_name": "M_BlueMetal",
+            "material_id": "mat_00000002"
+        }
+    ]
+    multi_mat_mesh["triangles"] = [
+        {
+            "vertex_indices": [0, 2, 1],
+            "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[0.0, 0.0], [1.0, 1.0], [1.0, 0.0]],
+            "material_slot_index": 0
+        },
+        {
+            "vertex_indices": [0, 3, 2],
+            "normals": [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            "uvs": [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+            "material_slot_index": 1
+        }
+    ]
+
+    write_fixture(
+        "18_multi_material_payload",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000016",
+            "name": "MultiMatObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000004",
+                "file": "meshes/mesh_00000004.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_RedRough",
+                    "material_id": "mat_00000001"
+                },
+                {
+                    "slot_index": 1,
+                    "slot_name": "M_BlueMetal",
+                    "material_id": "mat_00000002"
+                }
+            ]
+        }],
+        meshes={"mesh_00000004": multi_mat_mesh},
+        materials={
+            "mat_00000001": mat_pbr_red,
+            "mat_00000002": mat_pbr_blue
+        }
+    )
+
+    # 19. Broken Material Reference
+    broken_mat_mesh = dict(valid_mesh)
+    broken_mat_mesh["mesh_id"] = "mesh_00000005"
+    broken_mat_mesh["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_Missing",
+            "material_id": "mat_99999999"
+        }
+    ]
+
+    write_fixture(
+        "19_broken_material_ref",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000017",
+            "name": "BrokenMatObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000005",
+                "file": "meshes/mesh_00000005.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_Missing",
+                    "material_id": "mat_99999999"
+                }
+            ]
+        }],
+        meshes={"mesh_00000005": broken_mat_mesh},
+        materials={}
+    )
+
+    # 20. Invalid PBR Value (Metallic out of range 2.5)
+    invalid_pbr_mat = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_MATERIAL",
+        "version": "0.1.0",
+        "material_id": "mat_00000003",
+        "name": "M_BadMetallic",
+        "model": "PBR_METALLIC_ROUGHNESS",
+        "properties": {
+            "base_color": [0.8, 0.8, 0.8, 1.0],
+            "metallic": 2.5,
+            "roughness": 0.5,
+            "specular": 0.5,
+            "ior": 1.5,
+            "opacity": 1.0,
+            "blend_mode": "OPAQUE",
+            "two_sided": False
+        }
+    }
+
+    bad_mat_mesh = dict(valid_mesh)
+    bad_mat_mesh["mesh_id"] = "mesh_00000006"
+    bad_mat_mesh["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_BadMetallic",
+            "material_id": "mat_00000003"
+        }
+    ]
+
+    write_fixture(
+        "20_invalid_pbr_value",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000018",
+            "name": "InvalidPbrObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000006",
+                "file": "meshes/mesh_00000006.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_BadMetallic",
+                    "material_id": "mat_00000003"
+                }
+            ]
+        }],
+        meshes={"mesh_00000006": bad_mat_mesh},
+        materials={"mat_00000003": invalid_pbr_mat}
+    )
+
+    # 21. Invalid Material Schema
+    invalid_schema_mat = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "format": "BUBRIDGE_BAD_FORMAT",
+        "version": "0.1.0",
+        "material_id": "invalid_id_not_mat",
+        "name": "M_BadSchema",
+        "model": "UNKNOWN_MODEL",
+        "properties": {
+            "base_color": [0.8, 0.8, 0.8, 1.0]
+        }
+    }
+
+    bad_schema_mesh = dict(valid_mesh)
+    bad_schema_mesh["mesh_id"] = "mesh_00000007"
+    bad_schema_mesh["material_slots"] = [
+        {
+            "slot_index": 0,
+            "slot_name": "M_BadSchema",
+            "material_id": "invalid_id_not_mat"
+        }
+    ]
+
+    write_fixture(
+        "21_invalid_material_schema",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000019",
+            "name": "InvalidSchemaObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": {
+                "mesh_id": "mesh_00000007",
+                "file": "meshes/mesh_00000007.json",
+                "submesh_index": 0
+            },
+            "material_slots": [
+                {
+                    "slot_index": 0,
+                    "slot_name": "M_BadSchema",
+                    "material_id": "invalid_id_not_mat"
+                }
+            ]
+        }],
+        meshes={"mesh_00000007": bad_schema_mesh},
+        materials={"invalid_id_not_mat": invalid_schema_mat}
+    )
+
+    print(f"Generated 21 test fixtures in {FIXTURES_DIR}")
 
 
 if __name__ == "__main__":

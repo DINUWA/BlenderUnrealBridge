@@ -96,6 +96,7 @@ class ValidationResult:
 
 ID_PATTERN = re.compile(r"^obj_[0-9a-fA-F]{8,}$")
 MESH_ID_PATTERN = re.compile(r"^mesh_[0-9a-fA-F]{8,}$")
+MATERIAL_ID_PATTERN = re.compile(r"^mat_[0-9a-fA-F]{8,}$")
 
 
 class PackageValidator:
@@ -403,14 +404,85 @@ class PackageValidator:
                 )
 
     @classmethod
+    def validate_material(cls, material_data: Dict[str, Any], result: ValidationResult) -> None:
+        """Validates a single material payload conforming to BUBRIDGE_MATERIAL v0.1.0."""
+        mat_id = material_data.get("material_id", "")
+        if material_data.get("format") != "BUBRIDGE_MATERIAL":
+            result.add_error(
+                "MATERIAL_INVALID_FORMAT",
+                f"Material '{mat_id}' format must be 'BUBRIDGE_MATERIAL', got '{material_data.get('format')}'",
+                mat_id,
+            )
+
+        if not MATERIAL_ID_PATTERN.match(mat_id):
+            result.add_error(
+                "MATERIAL_INVALID_ID_FORMAT",
+                f"Material ID '{mat_id}' must match 'mat_<hex>' pattern",
+                mat_id,
+            )
+
+        if material_data.get("model") != "PBR_METALLIC_ROUGHNESS":
+            result.add_error(
+                "MATERIAL_INVALID_MODEL",
+                f"Material '{mat_id}' model must be 'PBR_METALLIC_ROUGHNESS', got '{material_data.get('model')}'",
+                mat_id,
+            )
+
+        # Base Color
+        base_color = material_data.get("base_color")
+        if not isinstance(base_color, list) or len(base_color) != 4:
+            result.add_error(
+                "MATERIAL_INVALID_BASE_COLOR",
+                f"Material '{mat_id}' base_color must be a list of 4 RGBA values, got {base_color}",
+                mat_id,
+            )
+        else:
+            for idx, c in enumerate(base_color):
+                if not isinstance(c, (int, float)) or not math.isfinite(c) or c < 0.0 or c > 1.0:
+                    result.add_error(
+                        "MATERIAL_OUT_OF_RANGE_BASE_COLOR",
+                        f"Material '{mat_id}' base_color[{idx}] must be a finite number in [0.0, 1.0], got {c}",
+                        mat_id,
+                    )
+                    break
+
+        # Metallic
+        metallic = material_data.get("metallic")
+        if not isinstance(metallic, (int, float)) or not math.isfinite(metallic) or metallic < 0.0 or metallic > 1.0:
+            result.add_error(
+                "MATERIAL_OUT_OF_RANGE_METALLIC",
+                f"Material '{mat_id}' metallic must be a finite number in [0.0, 1.0], got {metallic}",
+                mat_id,
+            )
+
+        # Roughness
+        roughness = material_data.get("roughness")
+        if not isinstance(roughness, (int, float)) or not math.isfinite(roughness) or roughness < 0.0 or roughness > 1.0:
+            result.add_error(
+                "MATERIAL_OUT_OF_RANGE_ROUGHNESS",
+                f"Material '{mat_id}' roughness must be a finite number in [0.0, 1.0], got {roughness}",
+                mat_id,
+            )
+
+        # Specular
+        specular = material_data.get("specular")
+        if specular is not None and (not isinstance(specular, (int, float)) or not math.isfinite(specular) or specular < 0.0 or specular > 1.0):
+            result.add_error(
+                "MATERIAL_OUT_OF_RANGE_SPECULAR",
+                f"Material '{mat_id}' specular must be a finite number in [0.0, 1.0], got {specular}",
+                mat_id,
+            )
+
+    @classmethod
     def validate_package(
         cls,
         manifest: Dict[str, Any],
         scene: Dict[str, Any],
         objects: Dict[str, Any],
         meshes: Optional[Dict[str, Dict[str, Any]]] = None,
+        materials: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> ValidationResult:
-        """Runs full validation suite on package components including meshes."""
+        """Runs full validation suite on package components including meshes and materials."""
         result = ValidationResult()
         cls.validate_manifest(manifest, result)
         cls.validate_scene(scene, result)
@@ -432,6 +504,33 @@ class PackageValidator:
                             f"Object '{obj.get('name')}' references non-existent mesh '{ref_id}'",
                             obj.get("id"),
                         )
+
+        if materials is not None:
+            for mat_id, mat_data in materials.items():
+                cls.validate_material(mat_data, result)
+
+            # Check that referenced materials in mesh / object slots exist in materials
+            mat_set = set(materials.keys())
+            for obj in objects.get("objects", []):
+                for slot in obj.get("material_slots", []):
+                    slot_mat_id = slot.get("material_id")
+                    if slot_mat_id and slot_mat_id not in mat_set:
+                        result.add_error(
+                            "OBJECT_BROKEN_MATERIAL_REF",
+                            f"Object '{obj.get('name')}' slot '{slot.get('slot_name')}' references non-existent material '{slot_mat_id}'",
+                            obj.get("id"),
+                        )
+
+            if meshes:
+                for mesh_id, mesh_data in meshes.items():
+                    for slot in mesh_data.get("material_slots", []):
+                        slot_mat_id = slot.get("material_id")
+                        if slot_mat_id and slot_mat_id not in mat_set:
+                            result.add_error(
+                                "MESH_BROKEN_MATERIAL_REF",
+                                f"Mesh '{mesh_id}' slot '{slot.get('slot_name')}' references non-existent material '{slot_mat_id}'",
+                                mesh_id,
+                            )
 
         return result
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 import math
 import bpy
 
-from ..collectors.id_generator import ensure_mesh_id
+from ..collectors.id_generator import ensure_mesh_id, ensure_material_id
 
 # Canonical format identifiers
 MESH_FORMAT = "BUBRIDGE_MESH"
@@ -160,7 +160,7 @@ def extract_mesh_data(obj: bpy.types.Object, depsgraph: Optional[bpy.types.Depsg
             material_slots.append({
                 "slot_index": idx,
                 "slot_name": slot.name if slot.name else f"Material_Slot_{idx}",
-                "material_id": f"mat_{slot.name.lower()}" if slot.material else None
+                "material_id": ensure_material_id(slot.material) if slot.material else None
             })
 
         if not material_slots:

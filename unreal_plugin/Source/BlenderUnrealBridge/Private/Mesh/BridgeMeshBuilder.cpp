@@ -7,7 +7,8 @@ UStaticMesh* FBridgeMeshBuilder::CreateStaticMesh(
 	UObject* Outer,
 	const FName& Name,
 	const FBridgeMeshData& MeshData,
-	FBridgeValidationReport& OutReport)
+	FBridgeValidationReport& OutReport,
+	const TMap<FString, UMaterialInterface*>& MaterialMap)
 {
 	if (!Outer)
 	{
@@ -61,6 +62,27 @@ UStaticMesh* FBridgeMeshBuilder::CreateStaticMesh(
 		FStaticMaterial StaticMaterial;
 		StaticMaterial.MaterialSlotName = SlotFName;
 		StaticMaterial.ImportedMaterialSlotName = SlotFName;
+
+		if (MeshData.MaterialSlots.IsValidIndex(SlotIdx))
+		{
+			const FString& MatId = MeshData.MaterialSlots[SlotIdx].MaterialId;
+			if (!MatId.IsEmpty())
+			{
+				if (UMaterialInterface* const* FoundMat = MaterialMap.Find(MatId))
+				{
+					StaticMaterial.MaterialInterface = *FoundMat;
+				}
+				else if (MaterialMap.Num() > 0)
+				{
+					OutReport.AddWarning(
+						TEXT("MATERIAL_SLOT_UNRESOLVED"),
+						FString::Printf(TEXT("Slot %d (%s) references material '%s' which was not found in material map"),
+							SlotIdx, *SlotFName.ToString(), *MatId),
+						MeshData.MeshId);
+				}
+			}
+		}
+
 		StaticMesh->GetStaticMaterials().Add(StaticMaterial);
 	}
 
@@ -105,6 +127,15 @@ UStaticMesh* FBridgeMeshBuilder::CreateStaticMesh(
 			FString::Printf(TEXT("BuildFromMeshDescriptions failed for mesh '%s'"), *Name.ToString()),
 			MeshData.MeshId);
 		return nullptr;
+	}
+
+	// 5. Assign Material Interfaces to StaticMesh slots
+	for (int32 SlotIdx = 0; SlotIdx < StaticMesh->GetStaticMaterials().Num(); ++SlotIdx)
+	{
+		if (StaticMesh->GetStaticMaterials()[SlotIdx].MaterialInterface)
+		{
+			StaticMesh->SetMaterial(SlotIdx, StaticMesh->GetStaticMaterials()[SlotIdx].MaterialInterface);
+		}
 	}
 
 	OutReport.AddInfo(

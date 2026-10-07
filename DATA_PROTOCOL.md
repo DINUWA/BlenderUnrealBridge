@@ -279,69 +279,53 @@ Captures extracted static mesh geometry converted into Canonical Bridge coordina
 
 ---
 
-### 4.5 `materials.json`
+---
 
-Captures the semantic PBR parameters extracted from Blender shader graphs.
+### 4.5 `materials/<material_id>.json` (Canonical PBR Material Payload)
+
+Captures semantic PBR material parameters extracted from Blender shader graphs (`BUBRIDGE_MATERIAL` v0.1.0).
+
+* **Format**: `BUBRIDGE_MATERIAL`
+* **Version**: `0.1.0`
+* **Model**: `PBR_METALLIC_ROUGHNESS`
+* **Material ID format**: `mat_<8 hex chars>` (e.g. `mat_7f9d31a2`), stable and deterministic per Blender material datablock.
+* **Storage**: Atomic per-material file located at `materials/<material_id>.json`.
+* **Scope (Milestone 6)**: Constant scalar and color properties only (no textures).
 
 ```json
 {
-  "materials": [
-    {
-      "id": "mat_roof_01",
-      "name": "M_Roof",
-      "shading_model": "DEFAULT_LIT_PBR",
-      "blend_mode": "OPAQUE",
-      "two_sided": false,
-      "channels": {
-        "base_color": {
-          "type": "TEXTURE",
-          "value": [1.0, 1.0, 1.0, 1.0],
-          "texture_id": "tex_roof_diff",
-          "uv_channel": 0
-        },
-        "metallic": {
-          "type": "CONSTANT",
-          "value": 0.0,
-          "texture_id": null
-        },
-        "roughness": {
-          "type": "TEXTURE",
-          "value": 0.7,
-          "texture_id": "tex_roof_rough",
-          "uv_channel": 0
-        },
-        "normal": {
-          "type": "TEXTURE",
-          "texture_id": "tex_roof_norm",
-          "strength": 1.0,
-          "uv_channel": 0,
-          "invert_green": false
-        },
-        "emission": {
-          "type": "CONSTANT",
-          "value": [0.0, 0.0, 0.0],
-          "strength": 0.0
-        },
-        "opacity": {
-          "type": "CONSTANT",
-          "value": 1.0,
-          "texture_id": null
-        }
-      },
-      "unsupported_nodes_detected": []
-    }
-  ]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "format": "BUBRIDGE_MATERIAL",
+  "version": "0.1.0",
+  "material_id": "mat_7f9d31a2",
+  "name": "M_Roof",
+  "model": "PBR_METALLIC_ROUGHNESS",
+  "properties": {
+    "base_color": [0.8, 0.1, 0.1, 1.0],
+    "metallic": 0.0,
+    "roughness": 0.7,
+    "specular": 0.5,
+    "ior": 1.5,
+    "opacity": 1.0,
+    "blend_mode": "OPAQUE",
+    "two_sided": false
+  }
 }
 ```
 
-#### Channel Value Types:
-* `CONSTANT`: Constant scalar or vector value.
-* `TEXTURE`: Bound to a texture reference from `textures.json`.
-* `FALLBACK`: Default value substituted when an unsupported procedural node network is detected.
+#### Property Specifications:
+* `base_color`: RGBA array of four floats normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Base Color" socket or legacy diffuse color.
+* `metallic`: Float normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Metallic" socket.
+* `roughness`: Float normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Roughness" socket.
+* `specular`: Float normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Specular IOR Level" (Blender 4.0+) or "Specular" (<4.0) socket. Defaults to 0.5.
+* `ior`: Float index of refraction (default 1.5). Extracted from Principled BSDF "IOR" socket.
+* `opacity`: Float normalized to `[0.0, 1.0]`. Extracted from Principled BSDF "Alpha" socket.
+* `blend_mode`: String enum (`OPAQUE`, `TRANSLUCENT`). Defaults to `OPAQUE` when opacity $\ge 0.999$.
+* `two_sided`: Boolean flag indicating double-sided rendering. Defaults to `false` (single-sided standard).
 
 ---
 
-### 4.5 `textures.json`
+### 4.6 `textures.json` (Future Milestone)
 
 Tracks image textures required by materials, including file paths and color space requirements.
 

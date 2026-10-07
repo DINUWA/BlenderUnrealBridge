@@ -136,7 +136,7 @@ class BridgePackageValidator:
     SUPPORTED_MINOR = 1
 
     @classmethod
-    def validate_package(cls, manifest, scene, objects, meshes=None):
+    def validate_package(cls, manifest, scene, objects, meshes=None, materials=None):
         errors = []
         warnings = []
 
@@ -265,11 +265,50 @@ class BridgePackageValidator:
                     if ref_id and ref_id not in meshes:
                         errors.append(("OBJECT_BROKEN_MESH_REF", f"Object references missing mesh {ref_id}"))
 
+        # Materials validation (Milestone 6)
+        if materials is not None:
+            for mat_id, mat in materials.items():
+                if mat.get("format") != "BUBRIDGE_MATERIAL":
+                    errors.append(("MATERIAL_INVALID_FORMAT", f"Expected BUBRIDGE_MATERIAL, got {mat.get('format')}"))
+                if not mat_id.startswith("mat_") or len(mat_id) < 12:
+                    errors.append(("MATERIAL_INVALID_ID_FORMAT", f"Invalid material ID {mat_id}"))
+                if mat.get("model") != "PBR_METALLIC_ROUGHNESS":
+                    errors.append(("MATERIAL_INVALID_MODEL", f"Expected PBR_METALLIC_ROUGHNESS, got {mat.get('model')}"))
+
+                props = mat.get("properties", {})
+                bc = props.get("base_color", [])
+                if not isinstance(bc, list) or len(bc) != 4 or not all(isinstance(c, (int, float)) and math.isfinite(c) and 0.0 <= c <= 1.0 for c in bc):
+                    errors.append(("MATERIAL_OUT_OF_RANGE_BASE_COLOR", f"Material {mat_id} base_color out of range"))
+
+                for prop_name, err_code in [
+                    ("metallic", "MATERIAL_OUT_OF_RANGE_METALLIC"),
+                    ("roughness", "MATERIAL_OUT_OF_RANGE_ROUGHNESS"),
+                    ("specular", "MATERIAL_OUT_OF_RANGE_SPECULAR"),
+                ]:
+                    val = props.get(prop_name)
+                    if val is None or not isinstance(val, (int, float)) or not math.isfinite(val) or val < 0.0 or val > 1.0:
+                        errors.append((err_code, f"Material {mat_id} {prop_name} out of range"))
+
+            # Check object material slot references
+            for obj in objects:
+                for slot in obj.get("material_slots", []):
+                    slot_mat_id = slot.get("material_id")
+                    if slot_mat_id and slot_mat_id not in materials:
+                        errors.append(("OBJECT_BROKEN_MATERIAL_REF", f"Object references missing material {slot_mat_id}"))
+
+            # Check mesh material slot references
+            if meshes is not None:
+                for m_id, mesh in meshes.items():
+                    for slot in mesh.get("material_slots", []):
+                        slot_mat_id = slot.get("material_id")
+                        if slot_mat_id and slot_mat_id not in materials:
+                            errors.append(("MESH_BROKEN_MATERIAL_REF", f"Mesh references missing material {slot_mat_id}"))
+
         return errors, warnings
 
 
 class TestUnrealPackageReaderFixtures(unittest.TestCase):
-    """Test validation of all 16 fixtures against the reader's validation rules."""
+    """Test validation of all 21 fixtures against the reader's validation rules."""
 
     def _load_fixture(self, name):
         pkg_dir = FIXTURES_DIR / f"{name}.bubridge"
@@ -286,45 +325,52 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
                 with open(m_file, "r", encoding="utf-8") as f:
                     m_data = json.load(f)
                     meshes[m_data.get("mesh_id", m_file.stem)] = m_data
-        return manifest, scene, objects_data["objects"], meshes
+        materials = {}
+        mat_dir = pkg_dir / "materials"
+        if mat_dir.exists():
+            for mat_file in mat_dir.glob("*.json"):
+                with open(mat_file, "r", encoding="utf-8") as f:
+                    mat_data = json.load(f)
+                    materials[mat_data.get("material_id", mat_file.stem)] = mat_data
+        return manifest, scene, objects_data["objects"], meshes, materials
 
     def test_fixture_01_identity_valid(self):
-        m, s, o, meshes = self._load_fixture("01_identity_scene")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("01_identity_scene")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
 
     def test_fixture_02_translated_valid(self):
-        m, s, o, meshes = self._load_fixture("02_single_translated")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("02_single_translated")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.translation, UnrealVector(250.0, -100.0, 50.0))
 
     def test_fixture_03_rotated_valid(self):
-        m, s, o, meshes = self._load_fixture("03_rotated_object")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("03_rotated_object")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         quat = BridgeTransformConverter.to_unreal_rotation(o[0]["transform"]["rotation_quaternion"])
         self.assertAlmostEqual(quat.size_squared(), 1.0, delta=1e-3)
 
     def test_fixture_04_scaled_valid(self):
-        m, s, o, meshes = self._load_fixture("04_scaled_object")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("04_scaled_object")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.scale, UnrealVector(2.0, 0.5, 3.0))
 
     def test_fixture_05_negative_scale_valid(self):
-        m, s, o, meshes = self._load_fixture("05_negative_scale")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("05_negative_scale")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         self.assertEqual(xform.scale, UnrealVector(-1.0, 1.0, 1.0))
         self.assertTrue(o[0]["transform"]["has_negative_scale"])
 
     def test_fixture_06_parent_child_valid(self):
-        m, s, o, meshes = self._load_fixture("06_parent_child")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("06_parent_child")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         self.assertEqual(len(o), 2)
         parent_xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
@@ -334,8 +380,8 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(child_world.translation, UnrealVector(100.0, 50.0, 0.0))
 
     def test_fixture_07_deep_hierarchy_valid(self):
-        m, s, o, meshes = self._load_fixture("07_deep_hierarchy")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("07_deep_hierarchy")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0)
         gp_xform = BridgeTransformConverter.to_unreal_local_transform(o[0]["transform"])
         p_xform = BridgeTransformConverter.to_unreal_local_transform(o[1]["transform"])
@@ -345,38 +391,38 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(child_world.translation, UnrealVector(100.0, 50.0, 100.0))
 
     def test_fixture_08_invalid_manifest_detected(self):
-        m, s, o, meshes = self._load_fixture("08_invalid_manifest")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("08_invalid_manifest")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "MANIFEST_INVALID_FORMAT" for code, _ in errors))
 
     def test_fixture_09_duplicate_id_detected(self):
-        m, s, o, meshes = self._load_fixture("09_duplicate_id")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("09_duplicate_id")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "OBJECT_DUPLICATE_ID" for code, _ in errors))
 
     def test_fixture_10_broken_parent_detected(self):
-        m, s, o, meshes = self._load_fixture("10_broken_parent")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("10_broken_parent")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "OBJECT_BROKEN_PARENT_REF" for code, _ in errors))
 
     def test_fixture_11_hierarchy_cycle_detected(self):
-        m, s, o, meshes = self._load_fixture("11_hierarchy_cycle")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("11_hierarchy_cycle")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "OBJECT_HIERARCHY_CYCLE" for code, _ in errors))
 
     def test_fixture_12_invalid_transform_detected(self):
-        m, s, o, meshes = self._load_fixture("12_invalid_transform")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("12_invalid_transform")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any("TRANSFORM" in code for code, _ in errors))
 
     def test_fixture_13_unsupported_version_detected(self):
-        m, s, o, meshes = self._load_fixture("13_unsupported_version")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("13_unsupported_version")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "MANIFEST_UNSUPPORTED_MAJOR_VERSION" for code, _ in errors))
 
     def test_fixture_14_mesh_payload_valid(self):
-        m, s, o, meshes = self._load_fixture("14_mesh_payload")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("14_mesh_payload")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
         self.assertIn("mesh_00000001", meshes)
         mesh = meshes["mesh_00000001"]
@@ -384,14 +430,46 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(mesh["counts"]["triangle_count"], 2)
 
     def test_fixture_15_broken_mesh_ref_detected(self):
-        m, s, o, meshes = self._load_fixture("15_broken_mesh_ref")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("15_broken_mesh_ref")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "OBJECT_BROKEN_MESH_REF" for code, _ in errors))
 
     def test_fixture_16_mesh_index_out_of_bounds_detected(self):
-        m, s, o, meshes = self._load_fixture("16_mesh_index_out_of_bounds")
-        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes)
+        m, s, o, meshes, mats = self._load_fixture("16_mesh_index_out_of_bounds")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
         self.assertTrue(any(code == "MESH_INDEX_OUT_OF_BOUNDS" for code, _ in errors))
+
+    def test_fixture_17_material_payload_valid(self):
+        m, s, o, meshes, mats = self._load_fixture("17_material_payload")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertIn("mat_00000001", mats)
+        mat = mats["mat_00000001"]
+        self.assertEqual(mat["properties"]["base_color"], [0.8, 0.1, 0.1, 1.0])
+        self.assertEqual(mat["properties"]["roughness"], 0.8)
+
+    def test_fixture_18_multi_material_payload_valid(self):
+        m, s, o, meshes, mats = self._load_fixture("18_multi_material_payload")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(mats), 2)
+        self.assertIn("mat_00000001", mats)
+        self.assertIn("mat_00000002", mats)
+
+    def test_fixture_19_broken_material_ref_detected(self):
+        m, s, o, meshes, mats = self._load_fixture("19_broken_material_ref")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
+        self.assertTrue(any("BROKEN_MATERIAL_REF" in code for code, _ in errors))
+
+    def test_fixture_20_invalid_pbr_value_detected(self):
+        m, s, o, meshes, mats = self._load_fixture("20_invalid_pbr_value")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
+        self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_METALLIC" for code, _ in errors))
+
+    def test_fixture_21_invalid_material_schema_detected(self):
+        m, s, o, meshes, mats = self._load_fixture("21_invalid_material_schema")
+        errors, _ = BridgePackageValidator.validate_package(m, s, o, meshes, mats)
+        self.assertTrue(any(code == "MATERIAL_INVALID_FORMAT" for code, _ in errors))
 
 
 class TestMilestone3Integration(unittest.TestCase):
@@ -548,6 +626,109 @@ class TestMilestone5MeshValidation(unittest.TestCase):
             {"mesh_00000001": bad_mesh}
         )
         self.assertTrue(any(code == "MESH_INVALID_MATERIAL_SLOT_INDEX" for code, _ in errs))
+
+
+class TestMilestone6MaterialValidation(unittest.TestCase):
+    """Direct validation tests for Milestone 6 material payloads and properties."""
+
+    def setUp(self):
+        self.base_manifest = {
+            "format": "BUBRIDGE", "version": "0.1.0",
+            "coordinate_system": {
+                "up_axis": "Z", "forward_axis": "X", "right_axis": "Y",
+                "handedness": "left_handed", "unit": "centimeter"
+            }
+        }
+        self.base_scene = {"name": "TestScene", "collections": []}
+        self.valid_material = {
+            "format": "BUBRIDGE_MATERIAL",
+            "version": "0.1.0",
+            "material_id": "mat_12345678",
+            "name": "M_TestPbr",
+            "model": "PBR_METALLIC_ROUGHNESS",
+            "properties": {
+                "base_color": [0.5, 0.5, 0.5, 1.0],
+                "metallic": 0.0,
+                "roughness": 0.5,
+                "specular": 0.5,
+                "ior": 1.5,
+                "opacity": 1.0,
+                "blend_mode": "OPAQUE",
+                "two_sided": False
+            }
+        }
+
+    def test_valid_material(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": self.valid_material}
+        )
+        self.assertEqual(len(errs), 0)
+
+    def test_invalid_material_format(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["format"] = "INVALID_MATERIAL_FORMAT"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_INVALID_FORMAT" for code, _ in errs))
+
+    def test_invalid_material_id_format(self):
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"invalid_mat_id": self.valid_material}
+        )
+        self.assertTrue(any(code == "MATERIAL_INVALID_ID_FORMAT" for code, _ in errs))
+
+    def test_invalid_material_model(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["model"] = "BLINN_PHONG"
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_INVALID_MODEL" for code, _ in errs))
+
+    def test_out_of_range_base_color(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["properties"] = dict(self.valid_material["properties"])
+        bad_mat["properties"]["base_color"] = [1.5, 0.0, 0.0, 1.0]
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_BASE_COLOR" for code, _ in errs))
+
+    def test_out_of_range_metallic(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["properties"] = dict(self.valid_material["properties"])
+        bad_mat["properties"]["metallic"] = -0.1
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_METALLIC" for code, _ in errs))
+
+    def test_out_of_range_roughness(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["properties"] = dict(self.valid_material["properties"])
+        bad_mat["properties"]["roughness"] = 1.2
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_ROUGHNESS" for code, _ in errs))
+
+    def test_out_of_range_specular(self):
+        bad_mat = dict(self.valid_material)
+        bad_mat["properties"] = dict(self.valid_material["properties"])
+        bad_mat["properties"]["specular"] = 2.0
+        errs, _ = BridgePackageValidator.validate_package(
+            self.base_manifest, self.base_scene, [],
+            materials={"mat_12345678": bad_mat}
+        )
+        self.assertTrue(any(code == "MATERIAL_OUT_OF_RANGE_SPECULAR" for code, _ in errs))
 
 
 if __name__ == "__main__":
