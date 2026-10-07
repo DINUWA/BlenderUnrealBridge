@@ -44,6 +44,35 @@ public:
 		const FBridgePackageData& PackageData,
 		const FBridgeObject& Object);
 
+	/**
+	 * Returns all root objects in the package (objects where ParentId is empty).
+	 */
+	static void GetRootObjects(
+		const FBridgePackageData& PackageData,
+		TArray<const FBridgeObject*>& OutRoots);
+
+	/**
+	 * Returns all immediate children of a given parent object.
+	 */
+	static void GetChildrenOf(
+		const FBridgePackageData& PackageData,
+		const FString& ParentId,
+		TArray<const FBridgeObject*>& OutChildren);
+
+	/**
+	 * Returns all objects in topological order (parents before children).
+	 */
+	static bool GetTopologicalObjectOrder(
+		const FBridgePackageData& PackageData,
+		TArray<const FBridgeObject*>& OutOrderedObjects);
+
+	/**
+	 * Builds the hierarchical folder path for a collection (e.g. "Environment/Props").
+	 */
+	static FString BuildCollectionFolderPath(
+		const FBridgePackageData& PackageData,
+		const FString& CollectionId);
+
 private:
 	static bool VerifyPackageStructure(
 		const FString& PackageDirectory,

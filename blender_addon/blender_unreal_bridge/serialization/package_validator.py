@@ -168,15 +168,42 @@ class PackageValidator:
                 result.add_error("COLLECTION_DUPLICATE_ID", f"Duplicate collection ID: {col_id}", col_id)
             col_ids.add(col_id)
 
-        # Validate collection parent references
+        # Validate collection parent references and cycles
+        parent_col_map: Dict[str, Optional[str]] = {}
         for col in collections:
+            col_id = col.get("id")
+            if not col_id:
+                continue
             parent_id = col.get("parent_id")
-            if parent_id is not None and parent_id not in col_ids:
-                result.add_error(
-                    "COLLECTION_BROKEN_PARENT",
-                    f"Collection '{col.get('id')}' references non-existent parent '{parent_id}'",
-                    col.get("id"),
-                )
+            parent_col_map[col_id] = parent_id
+            if parent_id is not None:
+                if parent_id == col_id:
+                    result.add_error(
+                        "COLLECTION_SELF_PARENT",
+                        f"Collection '{col_id}' cannot be its own parent",
+                        col_id,
+                    )
+                elif parent_id not in col_ids:
+                    result.add_error(
+                        "COLLECTION_BROKEN_PARENT",
+                        f"Collection '{col_id}' references non-existent parent '{parent_id}'",
+                        col_id,
+                    )
+
+        # Collection hierarchy cycle detection
+        for start_id in col_ids:
+            visited = set()
+            curr = start_id
+            while curr is not None:
+                if curr in visited:
+                    result.add_error(
+                        "COLLECTION_HIERARCHY_CYCLE",
+                        f"Hierarchy cycle detected involving collection '{curr}'",
+                        curr,
+                    )
+                    break
+                visited.add(curr)
+                curr = parent_col_map.get(curr)
 
     @classmethod
     def validate_objects(cls, objects_data: Dict[str, Any], result: ValidationResult) -> None:
@@ -230,7 +257,7 @@ class PackageValidator:
                     )
                 elif parent_id == obj_id:
                     result.add_error(
-                        "OBJECT_PARENT_SELF_CYCLE",
+                        "OBJECT_SELF_PARENT",
                         f"Object '{obj_id}' cannot be its own parent",
                         obj_id,
                     )
@@ -550,6 +577,17 @@ class PackageValidator:
         cls.validate_manifest(manifest, result)
         cls.validate_scene(scene, result)
         cls.validate_objects(objects, result)
+
+        # Check object collection references
+        valid_col_ids = {c.get("id") for c in scene.get("collections", []) if c.get("id")}
+        for obj in objects.get("objects", []):
+            col_ref = obj.get("collection_id")
+            if col_ref and col_ref not in valid_col_ids:
+                result.add_error(
+                    "OBJECT_BROKEN_COLLECTION_REF",
+                    f"Object '{obj.get('name')}' references non-existent collection '{col_ref}'",
+                    obj.get("id"),
+                )
 
         if meshes:
             for mesh_id, mesh_data in meshes.items():

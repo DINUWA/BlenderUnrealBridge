@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 8] - 2026-10-07
+
+### Added
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Scene/BridgeSceneBuilder.h` & `Private/Scene/BridgeSceneBuilder.cpp`:
+  - Implemented `FBridgeSceneBuilder::BuildScene()` for end-to-end scene actor instantiation, attachment, and outliner folder organization.
+  - Spawns `AStaticMeshActor` for meshes and `AActor` with root `USceneComponent` for empties/locators.
+  - Configures hierarchical actor attachment using `AttachToActor()` with `FAttachmentTransformRules::KeepRelativeTransform`.
+  - Sets root actors with authoritative world transforms and child actors with relative local transforms, preventing double-transformation.
+  - Assigns Unreal World Outliner folder paths via `Actor->SetFolderPath(FName)` computed recursively from the scene collection tree (`BuildCollectionFolderPath()`).
+  - Sets actor visibility based on the object's `visible` property.
+  - Preserves mesh material assignments on spawned static mesh components across multiple slots.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageReader.h` & `Private/Reader/BridgePackageReader.cpp`:
+  - Added hierarchy query helpers: `GetRootObjects()`, `GetChildrenOf()`, `GetTopologicalObjectOrder()`, and `BuildCollectionFolderPath()`.
+  - Added parsing for object `collection_ids` array in `ParseObjects()`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Core/BridgeDataModel.h`:
+  - Added `TArray<FString> CollectionIds` to `FBridgeObject`.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/Reader/BridgePackageValidator.h` & `Private/Reader/BridgePackageValidator.cpp`:
+  - Added collection validation in `ValidateScene()`: checks ID format, duplicate collection IDs (`COLLECTION_DUPLICATE_ID`), missing collection parents (`COLLECTION_BROKEN_PARENT`), self collection parents (`COLLECTION_SELF_PARENT`), and collection hierarchy cycles (`COLLECTION_HIERARCHY_CYCLE`).
+  - Added cross-validation in `ValidatePackage()`: checks object collection references (`OBJECT_BROKEN_COLLECTION_REF`).
+- `blender_addon/blender_unreal_bridge/serialization/package_validator.py`:
+  - Enhanced `validate_scene()` with `COLLECTION_SELF_PARENT` and `COLLECTION_HIERARCHY_CYCLE` detection.
+  - Enhanced `validate_objects()` with `OBJECT_SELF_PARENT` detection.
+  - Enhanced `validate_package()` cross-validation with `OBJECT_BROKEN_COLLECTION_REF` for both `collection_id` and `collection_ids`.
+- `blender_addon/blender_unreal_bridge/serialization/package_writer.py`:
+  - Populated `collection_ids` list on objects in `objects.json` alongside primary `collection_id`.
+- `blender_addon/tests/test_hierarchy.py`:
+  - 8 Blender headless unit tests covering deep 4-level parent-child hierarchy extraction, multiple independent roots, nested collection hierarchy extraction, collection assignment, self-parent and cycle validation, and non-destructive export.
+- `scripts/generate_test_fixtures.py`:
+  - Added deterministic test fixtures 29 through 36:
+    - `29_deep_hierarchy_4_levels` (Root -> Level1 -> Level2 -> Level3)
+    - `30_multiple_roots` (3 independent roots with children)
+    - `31_self_parent_object` (`OBJECT_SELF_PARENT`)
+    - `32_three_node_cycle` (`OBJECT_HIERARCHY_CYCLE`)
+    - `33_nested_collections` (Environment -> Buildings -> Props)
+    - `34_invalid_collection_parent` (`COLLECTION_BROKEN_PARENT`)
+    - `35_collection_self_parent` (`COLLECTION_SELF_PARENT`)
+    - `36_collection_cycle` (`COLLECTION_HIERARCHY_CYCLE`)
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Expanded engine-independent test suite to 67 tests including test cases for fixtures 29–36 and dedicated `TestMilestone8HierarchyValidation`.
+
+### Verification
+- Blender unit tests: 131/131 passed.
+- Unreal engine-independent tests: 67/67 passed.
+- Bridge Core C++ tests: 1/1 passed.
+- Unreal Engine 5.8 UBT compilation: 0 errors, 0 warnings (`UnrealEditor-BlenderUnrealBridge.dll` built).
+
 ## [Milestone 7] - 2026-10-07
 
 ### Added

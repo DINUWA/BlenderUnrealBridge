@@ -216,6 +216,48 @@ class BridgePackageValidator:
                 visited.add(curr)
                 curr = parent_map.get(curr)
 
+        # Scene Collections (Milestone 8)
+        col_seen_ids = set()
+        col_parent_map = {}
+        for col in scene.get("collections", []):
+            col_id = col.get("id", "")
+            if not col_id.startswith("col_") or len(col_id) < 12:
+                errors.append(("COLLECTION_INVALID_ID_FORMAT", f"Invalid collection ID {col_id}"))
+
+            if col_id in col_seen_ids:
+                errors.append(("COLLECTION_DUPLICATE_ID", f"Duplicate collection ID {col_id}"))
+            col_seen_ids.add(col_id)
+
+            col_parent_id = col.get("parent_id")
+            col_parent_map[col_id] = col_parent_id
+
+        for col_id, p_id in col_parent_map.items():
+            if p_id:
+                if p_id == col_id:
+                    errors.append(("COLLECTION_SELF_PARENT", f"Collection {col_id} references itself as parent"))
+                elif p_id not in col_seen_ids:
+                    errors.append(("COLLECTION_BROKEN_PARENT", f"Collection parent {p_id} not found"))
+
+        # Collection Cycle detection
+        for start_id in col_seen_ids:
+            visited = set()
+            curr = start_id
+            while curr:
+                if curr in visited:
+                    errors.append(("COLLECTION_HIERARCHY_CYCLE", f"Collection cycle involving {curr}"))
+                    break
+                visited.add(curr)
+                curr = col_parent_map.get(curr)
+
+        # Cross-validation: Object collection references
+        for obj in objects:
+            c_id = obj.get("collection_id")
+            if c_id and c_id not in col_seen_ids:
+                errors.append(("OBJECT_BROKEN_COLLECTION_REF", f"Object references missing collection {c_id}"))
+            for cid in obj.get("collection_ids", []):
+                if cid and cid not in col_seen_ids:
+                    errors.append(("OBJECT_BROKEN_COLLECTION_REF", f"Object references missing collection {cid}"))
+
         # Meshes validation (Milestone 5)
         if meshes is not None:
             for mesh_id, mesh in meshes.items():
@@ -591,6 +633,76 @@ class TestUnrealPackageReaderFixtures(unittest.TestCase):
         self.assertEqual(fix.materials["mat_0000000a"]["textures"]["base_color"], "tex_00000007")
         self.assertEqual(fix.materials["mat_0000000b"]["textures"]["base_color"], "tex_00000007")
 
+    def test_fixture_29_deep_hierarchy_4_levels_valid(self):
+        fix = self._load_fixture("29_deep_hierarchy_4_levels")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.objects), 4)
+        # Root -> Level1 -> Level2 -> Level3
+        root_xform = BridgeTransformConverter.to_unreal_local_transform(fix.objects[0]["transform"])
+        c1_xform = BridgeTransformConverter.to_unreal_local_transform(fix.objects[1]["transform"])
+        c2_xform = BridgeTransformConverter.to_unreal_local_transform(fix.objects[2]["transform"])
+        c3_xform = BridgeTransformConverter.to_unreal_local_transform(fix.objects[3]["transform"])
+        # World transform = c3 * c2 * c1 * root
+        great_grandchild_world = c3_xform * c2_xform * c1_xform * root_xform
+        self.assertEqual(great_grandchild_world.translation, UnrealVector(50.0, 50.0, 150.0))
+
+    def test_fixture_30_multiple_roots_valid(self):
+        fix = self._load_fixture("30_multiple_roots")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.objects), 5)
+        # Verify roots have no parent
+        roots = [obj for obj in fix.objects if not obj.get("parent_id")]
+        self.assertEqual(len(roots), 3)
+
+    def test_fixture_31_self_parent_object_detected(self):
+        fix = self._load_fixture("31_self_parent_object")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "OBJECT_SELF_PARENT" for code, _ in errors))
+
+    def test_fixture_32_three_node_cycle_detected(self):
+        fix = self._load_fixture("32_three_node_cycle")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "OBJECT_HIERARCHY_CYCLE" for code, _ in errors))
+
+    def test_fixture_33_nested_collections_valid(self):
+        fix = self._load_fixture("33_nested_collections")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertEqual(len(errors), 0, f"Unexpected errors: {errors}")
+        self.assertEqual(len(fix.scene.get("collections", [])), 3)
+
+    def test_fixture_34_invalid_collection_parent_detected(self):
+        fix = self._load_fixture("34_invalid_collection_parent")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "COLLECTION_BROKEN_PARENT" for code, _ in errors))
+
+    def test_fixture_35_collection_self_parent_detected(self):
+        fix = self._load_fixture("35_collection_self_parent")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "COLLECTION_SELF_PARENT" for code, _ in errors))
+
+    def test_fixture_36_collection_cycle_detected(self):
+        fix = self._load_fixture("36_collection_cycle")
+        errors, _ = BridgePackageValidator.validate_package(
+            fix.manifest, fix.scene, fix.objects, fix.meshes, fix.materials, fix.textures, fix.pkg_dir
+        )
+        self.assertTrue(any(code == "COLLECTION_HIERARCHY_CYCLE" for code, _ in errors))
+
 
 class TestMilestone3Integration(unittest.TestCase):
     """Integration test loading the real Milestone 3 generated package."""
@@ -955,6 +1067,185 @@ class TestMilestone7TextureValidation(unittest.TestCase):
             textures=[]  # empty textures, so tex_12345678 is missing
         )
         self.assertTrue(any(code == "MATERIAL_BROKEN_TEXTURE_REF" for code, _ in errs))
+
+
+class BridgeHierarchyHelper:
+    """Python mirror of hierarchy navigation logic in FBridgePackageReader / FBridgeSceneBuilder."""
+
+    @staticmethod
+    def get_root_objects(objects):
+        obj_ids = {obj.get("id") for obj in objects if obj.get("id")}
+        return [obj for obj in objects if not obj.get("parent_id") or obj.get("parent_id") not in obj_ids]
+
+    @staticmethod
+    def get_children_of(parent_id, objects):
+        return [obj for obj in objects if obj.get("parent_id") == parent_id]
+
+    @staticmethod
+    def get_topological_object_order(objects):
+        obj_map = {obj.get("id"): obj for obj in objects if obj.get("id")}
+        children_map = {}
+        for obj in objects:
+            pid = obj.get("parent_id")
+            if pid:
+                children_map.setdefault(pid, []).append(obj)
+
+        roots = BridgeHierarchyHelper.get_root_objects(objects)
+        ordered = []
+        queue = list(roots)
+        visited = set()
+
+        while queue:
+            curr = queue.pop(0)
+            cid = curr.get("id")
+            if cid in visited:
+                continue
+            visited.add(cid)
+            ordered.append(curr)
+            for child in children_map.get(cid, []):
+                queue.append(child)
+
+        for obj in objects:
+            if obj.get("id") not in visited:
+                ordered.append(obj)
+        return ordered
+
+    @staticmethod
+    def build_collection_folder_path(collection_id, collections):
+        col_map = {c.get("id"): c for c in collections if c.get("id")}
+        parts = []
+        curr_id = collection_id
+        visited = set()
+        while curr_id and curr_id in col_map:
+            if curr_id in visited:
+                break
+            visited.add(curr_id)
+            c = col_map[curr_id]
+            parts.append(c.get("name", curr_id))
+            curr_id = c.get("parent_id")
+        parts.reverse()
+        return "/".join(parts)
+
+
+class TestMilestone8HierarchyValidation(unittest.TestCase):
+    """Milestone 8 unit tests for hierarchy navigation, collection trees, and diagnostics."""
+
+    def setUp(self):
+        self.base_manifest = {
+            "format": "BUBRIDGE",
+            "version": "0.1.0",
+            "coordinate_system": {
+                "up_axis": "Z",
+                "forward_axis": "X",
+                "right_axis": "Y",
+                "handedness": "left_handed",
+                "unit": "centimeter"
+            }
+        }
+        self.base_scene = {
+            "name": "HierarchyScene",
+            "collections": [],
+            "environment": {}
+        }
+
+    def test_topological_sort_roots_first(self):
+        objects = [
+            {"id": "obj_00000003", "name": "Level2", "parent_id": "obj_00000002"},
+            {"id": "obj_00000001", "name": "Root", "parent_id": None},
+            {"id": "obj_00000004", "name": "Level3", "parent_id": "obj_00000003"},
+            {"id": "obj_00000002", "name": "Level1", "parent_id": "obj_00000001"},
+        ]
+        ordered = BridgeHierarchyHelper.get_topological_object_order(objects)
+        ordered_ids = [o["id"] for o in ordered]
+        self.assertEqual(ordered_ids, ["obj_00000001", "obj_00000002", "obj_00000003", "obj_00000004"])
+
+    def test_root_objects_identification(self):
+        objects = [
+            {"id": "obj_00000001", "name": "Root1", "parent_id": None},
+            {"id": "obj_00000002", "name": "Child1", "parent_id": "obj_00000001"},
+            {"id": "obj_00000003", "name": "Root2", "parent_id": None},
+            {"id": "obj_00000004", "name": "Child2", "parent_id": "obj_00000003"},
+        ]
+        roots = BridgeHierarchyHelper.get_root_objects(objects)
+        root_ids = [r["id"] for r in roots]
+        self.assertEqual(root_ids, ["obj_00000001", "obj_00000003"])
+
+    def test_children_query(self):
+        objects = [
+            {"id": "obj_00000001", "name": "Root", "parent_id": None},
+            {"id": "obj_00000002", "name": "ChildA", "parent_id": "obj_00000001"},
+            {"id": "obj_00000003", "name": "ChildB", "parent_id": "obj_00000001"},
+            {"id": "obj_00000004", "name": "Grandchild", "parent_id": "obj_00000002"},
+        ]
+        children = BridgeHierarchyHelper.get_children_of("obj_00000001", objects)
+        child_ids = [c["id"] for c in children]
+        self.assertEqual(child_ids, ["obj_00000002", "obj_00000003"])
+
+    def test_collection_folder_path_generation(self):
+        collections = [
+            {"id": "col_00000001", "name": "Environment", "parent_id": None},
+            {"id": "col_00000002", "name": "Buildings", "parent_id": "col_00000001"},
+            {"id": "col_00000003", "name": "Props", "parent_id": "col_00000002"},
+        ]
+        path_root = BridgeHierarchyHelper.build_collection_folder_path("col_00000001", collections)
+        path_mid = BridgeHierarchyHelper.build_collection_folder_path("col_00000002", collections)
+        path_leaf = BridgeHierarchyHelper.build_collection_folder_path("col_00000003", collections)
+
+        self.assertEqual(path_root, "Environment")
+        self.assertEqual(path_mid, "Environment/Buildings")
+        self.assertEqual(path_leaf, "Environment/Buildings/Props")
+
+    def test_collection_self_parent_detection(self):
+        scene = {
+            "name": "Scene",
+            "collections": [
+                {"id": "col_00000001", "name": "SelfCol", "parent_id": "col_00000001"}
+            ]
+        }
+        errs, _ = BridgePackageValidator.validate_package(self.base_manifest, scene, [])
+        self.assertTrue(any(code == "COLLECTION_SELF_PARENT" for code, _ in errs))
+
+    def test_collection_broken_parent_detection(self):
+        scene = {
+            "name": "Scene",
+            "collections": [
+                {"id": "col_00000001", "name": "OrphanCol", "parent_id": "col_missing"}
+            ]
+        }
+        errs, _ = BridgePackageValidator.validate_package(self.base_manifest, scene, [])
+        self.assertTrue(any(code == "COLLECTION_BROKEN_PARENT" for code, _ in errs))
+
+    def test_collection_cycle_detection(self):
+        scene = {
+            "name": "Scene",
+            "collections": [
+                {"id": "col_00000001", "name": "ColA", "parent_id": "col_00000002"},
+                {"id": "col_00000002", "name": "ColB", "parent_id": "col_00000001"},
+            ]
+        }
+        errs, _ = BridgePackageValidator.validate_package(self.base_manifest, scene, [])
+        self.assertTrue(any(code == "COLLECTION_HIERARCHY_CYCLE" for code, _ in errs))
+
+    def test_broken_object_collection_ref_detection(self):
+        scene = {
+            "name": "Scene",
+            "collections": [
+                {"id": "col_00000001", "name": "ValidCol", "parent_id": None}
+            ]
+        }
+        objects = [{
+            "id": "obj_00000001",
+            "name": "Obj",
+            "type": "EMPTY",
+            "collection_id": "col_nonexistent",
+            "transform": {
+                "location": [0.0, 0.0, 0.0],
+                "rotation_quaternion": [0.0, 0.0, 0.0, 1.0],
+                "scale": [1.0, 1.0, 1.0]
+            }
+        }]
+        errs, _ = BridgePackageValidator.validate_package(self.base_manifest, scene, objects)
+        self.assertTrue(any(code == "OBJECT_BROKEN_COLLECTION_REF" for code, _ in errs))
 
 
 if __name__ == "__main__":

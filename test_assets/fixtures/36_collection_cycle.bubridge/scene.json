@@ -1,0 +1,24 @@
+{
+  "name": "CycleColScene",
+  "collections": [
+    {
+      "id": "col_00000006",
+      "name": "CycleColA",
+      "parent_id": "col_00000007"
+    },
+    {
+      "id": "col_00000007",
+      "name": "CycleColB",
+      "parent_id": "col_00000006"
+    }
+  ],
+  "environment": {
+    "background_color": [
+      0.05,
+      0.05,
+      0.05,
+      1.0
+    ],
+    "ambient_intensity": 1.0
+  }
+}

@@ -256,6 +256,22 @@ bool FBridgePackageReader::ParseObjects(
 		ObjEntry->TryGetStringField(TEXT("type"), BridgeObj.Type);
 		ObjEntry->TryGetBoolField(TEXT("visible"), BridgeObj.bVisible);
 		ObjEntry->TryGetStringField(TEXT("collection_id"), BridgeObj.CollectionId);
+		const TArray<TSharedPtr<FJsonValue>>* ColIdsArray = nullptr;
+		if (ObjEntry->TryGetArrayField(TEXT("collection_ids"), ColIdsArray) && ColIdsArray)
+		{
+			for (const TSharedPtr<FJsonValue>& ColVal : *ColIdsArray)
+			{
+				FString ColIdStr;
+				if (ColVal->TryGetString(ColIdStr) && !ColIdStr.IsEmpty())
+				{
+					BridgeObj.CollectionIds.Add(ColIdStr);
+				}
+			}
+		}
+		if (BridgeObj.CollectionIds.Num() == 0 && !BridgeObj.CollectionId.IsEmpty())
+		{
+			BridgeObj.CollectionIds.Add(BridgeObj.CollectionId);
+		}
 		ObjEntry->TryGetStringField(TEXT("parent_id"), BridgeObj.ParentId);
 
 		const TSharedPtr<FJsonObject>* XformObj;
@@ -599,6 +615,125 @@ FTransform FBridgePackageReader::GetUnrealWorldTransform(
 	}
 
 	return AccumulatedTransform;
+}
+
+void FBridgePackageReader::GetRootObjects(
+	const FBridgePackageData& PackageData,
+	TArray<const FBridgeObject*>& OutRoots)
+{
+	OutRoots.Empty();
+	for (const FBridgeObject& Obj : PackageData.Objects)
+	{
+		if (!Obj.HasParent())
+		{
+			OutRoots.Add(&Obj);
+		}
+	}
+}
+
+void FBridgePackageReader::GetChildrenOf(
+	const FBridgePackageData& PackageData,
+	const FString& ParentId,
+	TArray<const FBridgeObject*>& OutChildren)
+{
+	OutChildren.Empty();
+	if (ParentId.IsEmpty())
+	{
+		return;
+	}
+
+	for (const FBridgeObject& Obj : PackageData.Objects)
+	{
+		if (Obj.ParentId == ParentId)
+		{
+			OutChildren.Add(&Obj);
+		}
+	}
+}
+
+bool FBridgePackageReader::GetTopologicalObjectOrder(
+	const FBridgePackageData& PackageData,
+	TArray<const FBridgeObject*>& OutOrderedObjects)
+{
+	OutOrderedObjects.Empty(PackageData.Objects.Num());
+
+	// Map of ParentId -> Array of Children
+	TMap<FString, TArray<const FBridgeObject*>> ChildrenMap;
+	TArray<const FBridgeObject*> Queue;
+
+	for (const FBridgeObject& Obj : PackageData.Objects)
+	{
+		if (!Obj.HasParent())
+		{
+			Queue.Add(&Obj);
+		}
+		else
+		{
+			ChildrenMap.FindOrAdd(Obj.ParentId).Add(&Obj);
+		}
+	}
+
+	TSet<FString> Visited;
+	int32 QueueIdx = 0;
+	while (QueueIdx < Queue.Num())
+	{
+		const FBridgeObject* Node = Queue[QueueIdx++];
+		if (!Node || Visited.Contains(Node->Id))
+		{
+			continue;
+		}
+
+		Visited.Add(Node->Id);
+		OutOrderedObjects.Add(Node);
+
+		if (const TArray<const FBridgeObject*>* Children = ChildrenMap.Find(Node->Id))
+		{
+			for (const FBridgeObject* Child : *Children)
+			{
+				if (Child && !Visited.Contains(Child->Id))
+				{
+					Queue.Add(Child);
+				}
+			}
+		}
+	}
+
+	return OutOrderedObjects.Num() == PackageData.Objects.Num();
+}
+
+FString FBridgePackageReader::BuildCollectionFolderPath(
+	const FBridgePackageData& PackageData,
+	const FString& CollectionId)
+{
+	if (CollectionId.IsEmpty())
+	{
+		return FString();
+	}
+
+	TMap<FString, const FBridgeCollection*> ColMap;
+	for (const FBridgeCollection& Col : PackageData.Scene.Collections)
+	{
+		ColMap.Add(Col.Id, &Col);
+	}
+
+	TArray<FString> PathParts;
+	TSet<FString> Visited;
+	FString CurrentId = CollectionId;
+
+	while (!CurrentId.IsEmpty() && !Visited.Contains(CurrentId))
+	{
+		Visited.Add(CurrentId);
+		const FBridgeCollection** FoundCol = ColMap.Find(CurrentId);
+		if (!FoundCol || !(*FoundCol))
+		{
+			break;
+		}
+
+		PathParts.Insert((*FoundCol)->Name, 0);
+		CurrentId = (*FoundCol)->ParentId;
+	}
+
+	return FString::Join(PathParts, TEXT("/"));
 }
 
 bool FBridgePackageReader::ParseMaterial(

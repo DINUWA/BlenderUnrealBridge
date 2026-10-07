@@ -180,6 +180,7 @@ struct BLENDERUNREALBRIDGE_API FBridgeObject
 	FString Type;
 	bool bVisible = true;
 	FString CollectionId;
+	TArray<FString> CollectionIds;
 	FString ParentId;
 
 	FBridgeCanonicalTransform Transform;

@@ -1,0 +1,90 @@
+{
+  "objects": [
+    {
+      "id": "obj_0000003d",
+      "name": "BuildingMesh",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": "col_00000002",
+      "collection_ids": [
+        "col_00000002"
+      ],
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_0000003e",
+      "name": "PropMesh",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": "col_00000003",
+      "collection_ids": [
+        "col_00000003"
+      ],
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    }
+  ]
+}

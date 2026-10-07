@@ -115,11 +115,16 @@ def build_package_data(
             # Check visibility
             is_visible = not (obj.hide_viewport or obj.hide_render)
 
-        # Primary collection assignment
+        # Primary collection assignment and full collection memberships
         col_id: Optional[str] = None
+        col_ids_list: List[str] = []
         if meta.collections:
             primary_col_name = meta.collections[0]
             col_id = col_name_to_id.get(primary_col_name)
+            for cname in meta.collections:
+                cid = col_name_to_id.get(cname)
+                if cid and cid not in col_ids_list:
+                    col_ids_list.append(cid)
 
         # Transform dictionary from Milestone 2 canonical representation
         transform_dict = (
@@ -183,6 +188,7 @@ def build_package_data(
             "type": _map_object_type(meta.object_type),
             "visible": is_visible,
             "collection_id": col_id,
+            "collection_ids": col_ids_list,
             "parent_id": meta.parent_id,
             "transform": transform_dict,
             "mesh_reference": mesh_ref,

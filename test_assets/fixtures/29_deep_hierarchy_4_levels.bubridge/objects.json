@@ -1,0 +1,164 @@
+{
+  "objects": [
+    {
+      "id": "obj_00000030",
+      "name": "HierarchyRoot",
+      "type": "EMPTY",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          100.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000031",
+      "name": "Level1Child",
+      "type": "EMPTY",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": "obj_00000030",
+      "transform": {
+        "location": [
+          50.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000032",
+      "name": "Level2Grandchild",
+      "type": "EMPTY",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": "obj_00000031",
+      "transform": {
+        "location": [
+          0.0,
+          50.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000033",
+      "name": "Level3GreatGrandchild",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": "obj_00000032",
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          50.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    }
+  ]
+}

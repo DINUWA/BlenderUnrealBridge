@@ -1,0 +1,204 @@
+{
+  "objects": [
+    {
+      "id": "obj_00000034",
+      "name": "RootA",
+      "type": "EMPTY",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": null,
+      "transform": {
+        "location": [
+          100.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000035",
+      "name": "ChildA1",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": "obj_00000034",
+      "transform": {
+        "location": [
+          10.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000036",
+      "name": "RootB",
+      "type": "EMPTY",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": null,
+      "transform": {
+        "location": [
+          -100.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000037",
+      "name": "ChildB1",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": "obj_00000036",
+      "transform": {
+        "location": [
+          0.0,
+          10.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    },
+    {
+      "id": "obj_00000038",
+      "name": "RootC",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": null,
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          100.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    }
+  ]
+}

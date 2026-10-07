@@ -1,0 +1,19 @@
+{
+  "name": "SelfColScene",
+  "collections": [
+    {
+      "id": "col_00000005",
+      "name": "SelfParentCollection",
+      "parent_id": "col_00000005"
+    }
+  ],
+  "environment": {
+    "background_color": [
+      0.05,
+      0.05,
+      0.05,
+      1.0
+    ],
+    "ambient_intensity": 1.0
+  }
+}

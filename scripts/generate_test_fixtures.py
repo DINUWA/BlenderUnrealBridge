@@ -1471,8 +1471,365 @@ def generate_all_fixtures():
         textures=[tex_07_shared]
     )
 
-    print(f"Generated 28 test fixtures in {FIXTURES_DIR}")
+    # -------------------------------------------------------------
+    # Milestone 8: Hierarchy & Validation Fixtures (29 - 36)
+    # -------------------------------------------------------------
+
+    # 29. Deep hierarchy (4 levels: Root -> Child -> Grandchild -> GreatGrandchild)
+    d4_root_xform = dict(IDENTITY_XFORM)
+    d4_root_xform["location"] = [0.0, 0.0, 100.0]
+    d4_c1_xform = dict(IDENTITY_XFORM)
+    d4_c1_xform["location"] = [50.0, 0.0, 0.0]
+    d4_c2_xform = dict(IDENTITY_XFORM)
+    d4_c2_xform["location"] = [0.0, 50.0, 0.0]
+    d4_c3_xform = dict(IDENTITY_XFORM)
+    d4_c3_xform["location"] = [0.0, 0.0, 50.0]
+
+    write_fixture(
+        "29_deep_hierarchy_4_levels",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_00000030",
+                "name": "HierarchyRoot",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": d4_root_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000031",
+                "name": "Level1Child",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000030",
+                "transform": d4_c1_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000032",
+                "name": "Level2Grandchild",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000031",
+                "transform": d4_c2_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000033",
+                "name": "Level3GreatGrandchild",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000032",
+                "transform": d4_c3_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 30. Multiple independent root objects with children
+    r_a_xform = dict(IDENTITY_XFORM)
+    r_a_xform["location"] = [100.0, 0.0, 0.0]
+    c_a_xform = dict(IDENTITY_XFORM)
+    c_a_xform["location"] = [10.0, 0.0, 0.0]
+
+    r_b_xform = dict(IDENTITY_XFORM)
+    r_b_xform["location"] = [-100.0, 0.0, 0.0]
+    c_b_xform = dict(IDENTITY_XFORM)
+    c_b_xform["location"] = [0.0, 10.0, 0.0]
+
+    r_c_xform = dict(IDENTITY_XFORM)
+    r_c_xform["location"] = [0.0, 100.0, 0.0]
+
+    write_fixture(
+        "30_multiple_roots",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_00000034",
+                "name": "RootA",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": r_a_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000035",
+                "name": "ChildA1",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000034",
+                "transform": c_a_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000036",
+                "name": "RootB",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": r_b_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000037",
+                "name": "ChildB1",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_00000036",
+                "transform": c_b_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_00000038",
+                "name": "RootC",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": None,
+                "transform": r_c_xform,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 31. Self-parent object (parent_id == id)
+    write_fixture(
+        "31_self_parent_object",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [{
+            "id": "obj_00000039",
+            "name": "SelfParentObject",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": None,
+            "parent_id": "obj_00000039",
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 32. Three-node object cycle (A -> B -> C -> A)
+    write_fixture(
+        "32_three_node_cycle",
+        BASE_MANIFEST,
+        BASE_SCENE,
+        [
+            {
+                "id": "obj_0000003a",
+                "name": "CycleNodeA",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_0000003c",
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000003b",
+                "name": "CycleNodeB",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_0000003a",
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000003c",
+                "name": "CycleNodeC",
+                "type": "EMPTY",
+                "visible": True,
+                "collection_id": None,
+                "parent_id": "obj_0000003b",
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 33. Nested collections (Environment -> Buildings -> Props)
+    scene_nested_col = {
+        "name": "NestedColScene",
+        "collections": [
+            {
+                "id": "col_00000001",
+                "name": "Environment",
+                "parent_id": None
+            },
+            {
+                "id": "col_00000002",
+                "name": "Buildings",
+                "parent_id": "col_00000001"
+            },
+            {
+                "id": "col_00000003",
+                "name": "Props",
+                "parent_id": "col_00000002"
+            }
+        ],
+        "environment": BASE_SCENE["environment"]
+    }
+
+    write_fixture(
+        "33_nested_collections",
+        BASE_MANIFEST,
+        scene_nested_col,
+        [
+            {
+                "id": "obj_0000003d",
+                "name": "BuildingMesh",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": "col_00000002",
+                "collection_ids": ["col_00000002"],
+                "parent_id": None,
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            },
+            {
+                "id": "obj_0000003e",
+                "name": "PropMesh",
+                "type": "STATIC_MESH",
+                "visible": True,
+                "collection_id": "col_00000003",
+                "collection_ids": ["col_00000003"],
+                "parent_id": None,
+                "transform": IDENTITY_XFORM,
+                "mesh_reference": None,
+                "material_slots": []
+            }
+        ]
+    )
+
+    # 34. Invalid collection parent (broken collection parent_id)
+    scene_broken_col = {
+        "name": "BrokenColScene",
+        "collections": [
+            {
+                "id": "col_00000004",
+                "name": "OrphanCollection",
+                "parent_id": "col_nonexistent"
+            }
+        ],
+        "environment": BASE_SCENE["environment"]
+    }
+
+    write_fixture(
+        "34_invalid_collection_parent",
+        BASE_MANIFEST,
+        scene_broken_col,
+        [{
+            "id": "obj_0000003f",
+            "name": "ObjInBrokenCol",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": "col_00000004",
+            "collection_ids": ["col_00000004"],
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 35. Collection self parent (collection.parent_id == id)
+    scene_self_col = {
+        "name": "SelfColScene",
+        "collections": [
+            {
+                "id": "col_00000005",
+                "name": "SelfParentCollection",
+                "parent_id": "col_00000005"
+            }
+        ],
+        "environment": BASE_SCENE["environment"]
+    }
+
+    write_fixture(
+        "35_collection_self_parent",
+        BASE_MANIFEST,
+        scene_self_col,
+        [{
+            "id": "obj_00000040",
+            "name": "ObjInSelfCol",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": "col_00000005",
+            "collection_ids": ["col_00000005"],
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    # 36. Collection hierarchy cycle (ColA -> ColB -> ColA)
+    scene_cycle_col = {
+        "name": "CycleColScene",
+        "collections": [
+            {
+                "id": "col_00000006",
+                "name": "CycleColA",
+                "parent_id": "col_00000007"
+            },
+            {
+                "id": "col_00000007",
+                "name": "CycleColB",
+                "parent_id": "col_00000006"
+            }
+        ],
+        "environment": BASE_SCENE["environment"]
+    }
+
+    write_fixture(
+        "36_collection_cycle",
+        BASE_MANIFEST,
+        scene_cycle_col,
+        [{
+            "id": "obj_00000041",
+            "name": "ObjInCycleCol",
+            "type": "STATIC_MESH",
+            "visible": True,
+            "collection_id": "col_00000006",
+            "collection_ids": ["col_00000006"],
+            "parent_id": None,
+            "transform": IDENTITY_XFORM,
+            "mesh_reference": None,
+            "material_slots": []
+        }]
+    )
+
+    print(f"Generated 36 test fixtures in {FIXTURES_DIR}")
 
 
 if __name__ == "__main__":
     generate_all_fixtures()
+

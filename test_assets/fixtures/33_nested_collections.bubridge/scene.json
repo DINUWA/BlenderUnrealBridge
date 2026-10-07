@@ -1,0 +1,29 @@
+{
+  "name": "NestedColScene",
+  "collections": [
+    {
+      "id": "col_00000001",
+      "name": "Environment",
+      "parent_id": null
+    },
+    {
+      "id": "col_00000002",
+      "name": "Buildings",
+      "parent_id": "col_00000001"
+    },
+    {
+      "id": "col_00000003",
+      "name": "Props",
+      "parent_id": "col_00000002"
+    }
+  ],
+  "environment": {
+    "background_color": [
+      0.05,
+      0.05,
+      0.05,
+      1.0
+    ],
+    "ambient_intensity": 1.0
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "BrokenColScene",
+  "collections": [
+    {
+      "id": "col_00000004",
+      "name": "OrphanCollection",
+      "parent_id": "col_nonexistent"
+    }
+  ],
+  "environment": {
+    "background_color": [
+      0.05,
+      0.05,
+      0.05,
+      1.0
+    ],
+    "ambient_intensity": 1.0
+  }
+}

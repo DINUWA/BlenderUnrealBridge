@@ -1,0 +1,47 @@
+{
+  "objects": [
+    {
+      "id": "obj_0000003f",
+      "name": "ObjInBrokenCol",
+      "type": "STATIC_MESH",
+      "visible": true,
+      "collection_id": "col_00000004",
+      "collection_ids": [
+        "col_00000004"
+      ],
+      "parent_id": null,
+      "transform": {
+        "location": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quaternion": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "rotation_euler": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_mode": "QUATERNION",
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "has_negative_scale": false,
+        "origin_offset": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mesh_reference": null,
+      "material_slots": []
+    }
+  ]
+}

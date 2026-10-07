@@ -99,6 +99,40 @@ bool FBridgePackageValidator::ValidatePackage(
 	bValid &= ValidateMaterials(PackageData.Materials, PackageData.Meshes, PackageData.Objects, OutReport);
 	bValid &= ValidateTextures(PackageData.Textures, PackageData.Materials, PackageData.PackageDirectory, OutReport);
 
+	// Validate object -> collection references
+	TSet<FString> ValidColIds;
+	for (const FBridgeCollection& Col : PackageData.Scene.Collections)
+	{
+		if (!Col.Id.IsEmpty())
+		{
+			ValidColIds.Add(Col.Id);
+		}
+	}
+
+	for (const FBridgeObject& Obj : PackageData.Objects)
+	{
+		if (!Obj.CollectionId.IsEmpty() && !ValidColIds.Contains(Obj.CollectionId))
+		{
+			OutReport.AddError(
+				TEXT("OBJECT_BROKEN_COLLECTION_REF"),
+				FString::Printf(TEXT("Object '%s' references non-existent collection '%s'"), *Obj.Name, *Obj.CollectionId),
+				Obj.Id);
+			bValid = false;
+		}
+
+		for (const FString& ColId : Obj.CollectionIds)
+		{
+			if (!ColId.IsEmpty() && !ValidColIds.Contains(ColId))
+			{
+				OutReport.AddError(
+					TEXT("OBJECT_BROKEN_COLLECTION_REF"),
+					FString::Printf(TEXT("Object '%s' references non-existent collection '%s'"), *Obj.Name, *ColId),
+					Obj.Id);
+				bValid = false;
+			}
+		}
+	}
+
 	return bValid && OutReport.IsValid();
 }
 
@@ -223,15 +257,58 @@ bool FBridgePackageValidator::ValidateScene(
 	}
 
 	// Validate collection parent hierarchy references
+	TMap<FString, FString> ParentColMap;
 	for (const FBridgeCollection& Col : Scene.Collections)
 	{
-		if (!Col.ParentId.IsEmpty() && !CollectionIds.Contains(Col.ParentId))
+		if (Col.Id.IsEmpty())
 		{
-			OutReport.AddError(
-				TEXT("COLLECTION_BROKEN_PARENT"),
-				FString::Printf(TEXT("Collection '%s' references non-existent parent collection '%s'"), *Col.Id, *Col.ParentId),
-				Col.Id);
-			bValid = false;
+			continue;
+		}
+
+		ParentColMap.Add(Col.Id, Col.ParentId);
+
+		if (!Col.ParentId.IsEmpty())
+		{
+			if (Col.ParentId == Col.Id)
+			{
+				OutReport.AddError(
+					TEXT("COLLECTION_SELF_PARENT"),
+					FString::Printf(TEXT("Collection '%s' cannot be its own parent"), *Col.Id),
+					Col.Id);
+				bValid = false;
+			}
+			else if (!CollectionIds.Contains(Col.ParentId))
+			{
+				OutReport.AddError(
+					TEXT("COLLECTION_BROKEN_PARENT"),
+					FString::Printf(TEXT("Collection '%s' references non-existent parent collection '%s'"), *Col.Id, *Col.ParentId),
+					Col.Id);
+				bValid = false;
+			}
+		}
+	}
+
+	// Collection hierarchy cycle detection
+	for (const FString& StartColId : CollectionIds)
+	{
+		TSet<FString> VisitedInPath;
+		FString CurrentId = StartColId;
+
+		while (!CurrentId.IsEmpty())
+		{
+			if (VisitedInPath.Contains(CurrentId))
+			{
+				OutReport.AddError(
+					TEXT("COLLECTION_HIERARCHY_CYCLE"),
+					FString::Printf(TEXT("Hierarchy cycle detected involving collection '%s'"), *CurrentId),
+					CurrentId);
+				bValid = false;
+				break;
+			}
+			VisitedInPath.Add(CurrentId);
+
+			const FString* NextParent = ParentColMap.Find(CurrentId);
+			CurrentId = (NextParent && !NextParent->IsEmpty()) ? *NextParent : TEXT("");
 		}
 	}
 
