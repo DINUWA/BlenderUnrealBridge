@@ -33,6 +33,8 @@ public class BlenderUnrealBridge : ModuleRules
 				"JsonUtilities",
 				"MeshDescription",
 				"StaticMeshDescription",
+				"Sockets",
+				"Networking",
 			}
 		);
 

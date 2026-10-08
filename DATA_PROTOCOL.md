@@ -526,6 +526,81 @@ Defines skeletal hierarchies (`skeletons`) and sampled bone animation clips (`an
 
 ---
 
+### 4.8 Live Synchronization Protocol (`BUBRIDGE_LIVESYNC` v0.1.0)
+
+Defines the real-time TCP socket delta protocol for live scene updates between Blender and Unreal Engine without full `.bubridge` re-imports.
+
+* **Wire format**: Single-line UTF-8 JSON terminated by `\n` (newline-delimited).
+* **Transport**: Localhost TCP socket (default host: `127.0.0.1`, default port: `27284`).
+* **Protocol Version**: `0.1.0`.
+* **Coordinates**: All transform values are ALREADY in Bridge canonical space (Left-Handed, +Z Up, +X Forward, +Y Right, cm).
+* **Idempotency**: All transform updates are absolute (not relative deltas).
+
+#### Supported Messages:
+
+1. **`HELLO`** (Blender $\rightarrow$ Unreal Handshake):
+```json
+{
+  "message_type": "HELLO",
+  "protocol_version": "0.1.0",
+  "session_id": "a1b2c3d4",
+  "source": "BlenderUnrealBridge_Addon",
+  "source_version": "0.1.0",
+  "sequence": 0
+}
+```
+
+2. **`HELLO_ACK`** (Unreal $\rightarrow$ Blender Handshake Response):
+```json
+{
+  "message_type": "HELLO_ACK",
+  "protocol_version": "0.1.0",
+  "session_id": "a1b2c3d4",
+  "accepted": true,
+  "sequence": 0
+}
+```
+
+3. **`OBJECT_TRANSFORM_UPDATE`** (Blender $\rightarrow$ Unreal Transform Delta):
+```json
+{
+  "message_type": "OBJECT_TRANSFORM_UPDATE",
+  "protocol_version": "0.1.0",
+  "session_id": "a1b2c3d4",
+  "sequence": 1,
+  "object_id": "obj_7f9d31a2",
+  "transform": {
+    "location": [50.0, 20.0, 350.0],
+    "rotation": [0.0, 0.0, 0.0, 1.0],
+    "scale": [1.0, 1.0, 1.0],
+    "has_negative_scale": false
+  }
+}
+```
+
+4. **`KEEPALIVE`** (Heartbeat):
+```json
+{
+  "message_type": "KEEPALIVE",
+  "protocol_version": "0.1.0",
+  "session_id": "a1b2c3d4",
+  "sequence": 2
+}
+```
+
+5. **`GOODBYE`** (Clean Disconnect):
+```json
+{
+  "message_type": "GOODBYE",
+  "protocol_version": "0.1.0",
+  "session_id": "a1b2c3d4",
+  "sequence": 3,
+  "reason": "user_disconnect"
+}
+```
+
+---
+
 ## 5. Diagnostic and Reporting Protocol (`report.json`)
 
 Export and import operations generate a structured diagnostic report detailing progress, warnings, and errors.

@@ -95,12 +95,74 @@ class BUBRIDGE_PT_main_panel(bpy.types.Panel):
         col.separator()
         col.label(text="Package Export:", icon="EXPORT")
         col.operator("bubridge.export_package", icon="PACKAGE")
+        col.separator()
+        col.label(text="Live Sync:", icon="LINKED")
+
+        from .live_sync.session import get_session
+        session = get_session()
+        if session is not None and session.is_connected:
+            col.label(text=f"\u25cf Connected (session: {session.session_id})", icon="CHECKMARK")
+            col.operator("bubridge.live_disconnect", icon="UNLINKED")
+        else:
+            col.label(text="\u25cb Disconnected", icon="X")
+            col.operator("bubridge.live_connect", icon="LINKED")
+
+
+class BUBRIDGE_OT_live_connect(bpy.types.Operator):
+    """Connect to Unreal Engine for live synchronisation."""
+    bl_idname = "bubridge.live_connect"
+    bl_label = "Connect to Unreal"
+    bl_description = (
+        "Establish a live-sync connection to Unreal Engine on localhost:27284. "
+        "Unreal must be running with the BlenderUnrealBridge plugin and the "
+        "live-sync server started."
+    )
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        from .live_sync.session import ensure_session
+        from .live_sync.change_detector import register_handler, prime_transform_cache
+        from .live_sync.protocol import DEFAULT_HOST, DEFAULT_PORT
+
+        session = ensure_session(DEFAULT_HOST, DEFAULT_PORT, VERSION_STRING)
+        ok, msg = session.connect()
+        if ok:
+            prime_transform_cache(context.scene)
+            register_handler()
+            self.report({"INFO"}, msg)
+        else:
+            self.report({"WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class BUBRIDGE_OT_live_disconnect(bpy.types.Operator):
+    """Disconnect the live synchronisation session."""
+    bl_idname = "bubridge.live_disconnect"
+    bl_label = "Disconnect"
+    bl_description = "Close the live-sync connection to Unreal Engine"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        from .live_sync.session import get_session, clear_session
+        from .live_sync.change_detector import unregister_handler, clear_transform_cache
+
+        session = get_session()
+        if session is not None and session.is_connected:
+            unregister_handler()
+            clear_transform_cache()
+            clear_session()
+            self.report({"INFO"}, "[BUBRIDGE] Live-sync disconnected.")
+        else:
+            self.report({"INFO"}, "[BUBRIDGE] No active live-sync session.")
+        return {"FINISHED"}
 
 
 classes = (
     BUBRIDGE_OT_check_status,
     BUBRIDGE_OT_collect_scene,
     BUBRIDGE_OT_export_package,
+    BUBRIDGE_OT_live_connect,
+    BUBRIDGE_OT_live_disconnect,
     BUBRIDGE_PT_main_panel,
 )
 
@@ -111,6 +173,18 @@ def register():
 
 
 def unregister():
+    # Ensure live-sync is cleaned up on unregister
+    try:
+        from .live_sync.session import get_session, clear_session
+        from .live_sync.change_detector import unregister_handler, clear_transform_cache
+        session = get_session()
+        if session is not None and session.is_connected:
+            unregister_handler()
+            clear_transform_cache()
+            clear_session()
+    except Exception:
+        pass
+
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 

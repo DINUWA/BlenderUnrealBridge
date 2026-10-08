@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Milestone 10] - 2026-10-08
+
+### Added
+- `bridge_core/include/bridge_core/live_sync_protocol.h`:
+  - Added shared C++ protocol constants for `BUBRIDGE_LIVESYNC_PROTOCOL_VERSION` ("0.1.0"), default port (27284), and message identifiers (`HELLO`, `HELLO_ACK`, `GOODBYE`, `KEEPALIVE`, `OBJECT_TRANSFORM_UPDATE`).
+- `blender_addon/blender_unreal_bridge/live_sync/protocol.py`:
+  - Implemented versioned message schemas, serialisation (`encode_message`, `decode_message`), message builders (`build_hello`, `build_hello_ack`, `build_goodbye`, `build_keepalive`, `build_object_transform_update`), and message validation.
+- `blender_addon/blender_unreal_bridge/live_sync/transport.py`:
+  - Implemented thin TCP client transport abstraction with error resilience and line-framed socket I/O.
+- `blender_addon/blender_unreal_bridge/live_sync/session.py`:
+  - Implemented session state machine (`DISCONNECTED`, `HANDSHAKING`, `CONNECTED`), sequence counter, and automatic reset on transport errors.
+- `blender_addon/blender_unreal_bridge/live_sync/change_detector.py`:
+  - Implemented Blender `depsgraph_update_post` handler, dirty-state caching, and epsilon change detection to suppress duplicate or sub-millimeter noise updates.
+- `blender_addon/blender_unreal_bridge/__init__.py`:
+  - Added UI operators `bubridge.live_connect` and `bubridge.live_disconnect`, along with Live Sync status indicators in the View3D sidebar panel.
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/LiveSync/BridgeLiveSyncProtocol.h`:
+  - Added C++ live-sync constants and payload structures (`FBridgeLiveSyncTransformUpdate`, `FBridgeLiveSyncValidationResult`).
+- `unreal_plugin/Source/BlenderUnrealBridge/Public/LiveSync/BridgeLiveSyncReceiver.h` & `Private/LiveSync/BridgeLiveSyncReceiver.cpp`:
+  - Implemented asynchronous TCP server using `FSocket` on background `FRunnableThread`.
+  - Added thread-safe pending update queue drained on game thread via `FTSTicker` to safely update Unreal `AActor` transforms.
+  - Implemented `ParseAndValidateMessage()` validating protocol version, session ID, object ID format, and finite transform vectors.
+- `unreal_plugin/Source/BlenderUnrealBridge/Private/BlenderUnrealBridgeModule.cpp`:
+  - Hooked `FBridgeLiveSyncReceiver` into module lifecycle (auto-starts on startup, stops cleanly on shutdown).
+- `unreal_plugin/Source/BlenderUnrealBridge/BlenderUnrealBridge.Build.cs`:
+  - Added `"Sockets"` and `"Networking"` private dependency modules.
+- `blender_addon/tests/test_live_sync.py`:
+  - 17 unit tests covering protocol constants, encoders/decoders, message builders, validation, change detector epsilons, and loopback TCP handshake/update/disconnect.
+- `unreal_plugin/Tests/test_unreal_package_reader.py`:
+  - Added `UnrealLiveSyncReceiver` mirror and `TestMilestone10LiveSyncValidation` suite with 14 engine-independent tests.
+
+### Verification
+- Blender unit tests: 153/153 passed.
+- Unreal engine-independent tests: 91/91 passed.
+- Bridge Core C++ tests: 1/1 passed.
+- Unreal Engine 5.8 UBT compilation: 0 errors, 0 warnings (`UnrealEditor-BlenderUnrealBridge.dll` built).
+
 ## [Milestone 9] - 2026-10-08
 
 ### Added

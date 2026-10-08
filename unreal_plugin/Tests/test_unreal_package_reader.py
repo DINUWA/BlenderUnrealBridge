@@ -80,6 +80,13 @@ class UnrealQuat:
             self.w * other.w - self.x * other.x - self.y * other.y - self.z * other.z,
         )
 
+    def __eq__(self, other):
+        return (isinstance(other, UnrealQuat) and
+                math.isclose(self.x, other.x, abs_tol=1e-4) and
+                math.isclose(self.y, other.y, abs_tol=1e-4) and
+                math.isclose(self.z, other.z, abs_tol=1e-4) and
+                math.isclose(self.w, other.w, abs_tol=1e-4))
+
 
 class UnrealTransform:
     """Mimics Unreal FTransform."""
@@ -1603,6 +1610,276 @@ class TestMilestone9AnimationValidation(unittest.TestCase):
         sample_mid = UnrealAnimationBuilder.sample_bone_track(track, 0.5)
         self.assertEqual(sample_mid.translation, UnrealVector(50.0, 0.0, 0.0))
         self.assertEqual(sample_mid.scale, UnrealVector(1.5, 1.5, 1.5))
+
+
+class UnrealLiveSyncReceiver:
+    """Python mirror of FBridgeLiveSyncReceiver::ParseAndValidateMessage."""
+
+    @staticmethod
+    def parse_and_validate_message(raw_line: str, expected_session_id: str = "") -> dict:
+        try:
+            msg = json.loads(raw_line.strip())
+        except Exception:
+            return {"valid": False, "error": "Failed to parse JSON."}
+
+        msg_type = msg.get("message_type")
+        proto_ver = msg.get("protocol_version")
+        session_id = msg.get("session_id")
+
+        if not msg_type:
+            return {"valid": False, "error": "Missing or empty 'message_type'."}
+        if not proto_ver:
+            return {"valid": False, "error": "Missing 'protocol_version'."}
+        if proto_ver != "0.1.0":
+            return {"valid": False, "error": f"Unsupported protocol version '{proto_ver}'. Expected '0.1.0'."}
+        if not session_id:
+            return {"valid": False, "error": "Missing or empty 'session_id'."}
+        if expected_session_id and msg_type != "HELLO" and session_id != expected_session_id:
+            return {"valid": False, "error": f"Session ID mismatch: expected '{expected_session_id}', got '{session_id}'."}
+
+        known = {"HELLO", "HELLO_ACK", "GOODBYE", "KEEPALIVE", "OBJECT_TRANSFORM_UPDATE"}
+        if msg_type not in known:
+            return {"valid": False, "error": f"Unknown message_type '{msg_type}'."}
+
+        if msg_type == "OBJECT_TRANSFORM_UPDATE":
+            obj_id = msg.get("object_id")
+            if not obj_id:
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: Missing 'object_id'."}
+            if not isinstance(obj_id, str) or not obj_id.startswith("obj_") or len(obj_id) != 12:
+                return {"valid": False, "error": f"OBJECT_TRANSFORM_UPDATE: Invalid object_id format '{obj_id}'."}
+
+            transform = msg.get("transform")
+            if not isinstance(transform, dict):
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: Missing 'transform' block."}
+
+            loc = transform.get("location")
+            rot = transform.get("rotation")
+            scale = transform.get("scale")
+
+            if not isinstance(loc, list) or len(loc) != 3:
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'transform.location' must be [x, y, z]."}
+            if not isinstance(rot, list) or len(rot) != 4:
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'transform.rotation' must be [x, y, z, w]."}
+            if not isinstance(scale, list) or len(scale) != 3:
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'transform.scale' must be [sx, sy, sz]."}
+
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in loc):
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'location' contains non-finite value."}
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in rot):
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'rotation' contains non-finite value."}
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in scale):
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'scale' contains non-finite value."}
+            if any(s == 0.0 for s in scale):
+                return {"valid": False, "error": "OBJECT_TRANSFORM_UPDATE: 'scale' must not contain zero components."}
+
+            return {
+                "valid": True,
+                "message_type": msg_type,
+                "payload": {
+                    "object_id": obj_id,
+                    "location": UnrealVector(loc[0], loc[1], loc[2]),
+                    "rotation": UnrealQuat(rot[0], rot[1], rot[2], rot[3]),
+                    "scale": UnrealVector(scale[0], scale[1], scale[2]),
+                    "has_negative_scale": bool(transform.get("has_negative_scale", False)),
+                },
+            }
+
+        return {"valid": True, "message_type": msg_type}
+
+
+class TestMilestone10LiveSyncValidation(unittest.TestCase):
+    """Engine-independent validation tests for Milestone 10 Live Synchronization."""
+
+    def test_valid_hello_message(self):
+        msg = json.dumps({
+            "message_type": "HELLO",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "source": "BlenderUnrealBridge_Addon",
+            "source_version": "0.1.0",
+            "sequence": 0
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg)
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["message_type"], "HELLO")
+
+    def test_valid_hello_ack_message(self):
+        msg = json.dumps({
+            "message_type": "HELLO_ACK",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "accepted": True,
+            "sequence": 0
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["message_type"], "HELLO_ACK")
+
+    def test_valid_goodbye_message(self):
+        msg = json.dumps({
+            "message_type": "GOODBYE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "sequence": 10,
+            "reason": "shutdown"
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["message_type"], "GOODBYE")
+
+    def test_valid_keepalive_message(self):
+        msg = json.dumps({
+            "message_type": "KEEPALIVE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "sequence": 3
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["message_type"], "KEEPALIVE")
+
+    def test_valid_object_transform_update(self):
+        msg = json.dumps({
+            "message_type": "OBJECT_TRANSFORM_UPDATE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "sequence": 1,
+            "object_id": "obj_a1b2c3d4",
+            "transform": {
+                "location": [100.0, 200.0, 300.0],
+                "rotation": [0.0, 0.0, 0.0, 1.0],
+                "scale": [1.0, 1.0, 1.0],
+                "has_negative_scale": False
+            }
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["message_type"], "OBJECT_TRANSFORM_UPDATE")
+        payload = res["payload"]
+        self.assertEqual(payload["object_id"], "obj_a1b2c3d4")
+        self.assertEqual(payload["location"], UnrealVector(100.0, 200.0, 300.0))
+        self.assertEqual(payload["rotation"], UnrealQuat(0.0, 0.0, 0.0, 1.0))
+        self.assertEqual(payload["scale"], UnrealVector(1.0, 1.0, 1.0))
+        self.assertFalse(payload["has_negative_scale"])
+
+    def test_invalid_json(self):
+        res = UnrealLiveSyncReceiver.parse_and_validate_message("not valid json")
+        self.assertFalse(res["valid"])
+        self.assertIn("Failed to parse JSON", res["error"])
+
+    def test_missing_message_type(self):
+        msg = json.dumps({
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234"
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg)
+        self.assertFalse(res["valid"])
+        self.assertIn("Missing or empty 'message_type'", res["error"])
+
+    def test_unsupported_protocol_version(self):
+        msg = json.dumps({
+            "message_type": "HELLO",
+            "protocol_version": "2.0.0",
+            "session_id": "sess_1234"
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg)
+        self.assertFalse(res["valid"])
+        self.assertIn("Unsupported protocol version", res["error"])
+
+    def test_session_id_mismatch(self):
+        msg = json.dumps({
+            "message_type": "KEEPALIVE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_wrong"
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertFalse(res["valid"])
+        self.assertIn("Session ID mismatch", res["error"])
+
+    def test_unknown_message_type(self):
+        msg = json.dumps({
+            "message_type": "UNKNOWN_ACTION",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234"
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg)
+        self.assertFalse(res["valid"])
+        self.assertIn("Unknown message_type", res["error"])
+
+    def test_invalid_object_id_format(self):
+        msg = json.dumps({
+            "message_type": "OBJECT_TRANSFORM_UPDATE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "object_id": "mesh_12345678",
+            "transform": {
+                "location": [0, 0, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            }
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertFalse(res["valid"])
+        self.assertIn("Invalid object_id format", res["error"])
+
+    def test_non_finite_transform_location(self):
+        msg = json.dumps({
+            "message_type": "OBJECT_TRANSFORM_UPDATE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "object_id": "obj_a1b2c3d4",
+            "transform": {
+                "location": [float("inf"), 0, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [1, 1, 1]
+            }
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertFalse(res["valid"])
+
+    def test_zero_scale_component(self):
+        msg = json.dumps({
+            "message_type": "OBJECT_TRANSFORM_UPDATE",
+            "protocol_version": "0.1.0",
+            "session_id": "sess_1234",
+            "object_id": "obj_a1b2c3d4",
+            "transform": {
+                "location": [0, 0, 0],
+                "rotation": [0, 0, 0, 1],
+                "scale": [0.0, 1.0, 1.0]
+            }
+        })
+        res = UnrealLiveSyncReceiver.parse_and_validate_message(msg, "sess_1234")
+        self.assertFalse(res["valid"])
+        self.assertIn("zero components", res["error"])
+
+    def test_root_and_child_actor_transform_semantics(self):
+        """Verify that canonical transform updates apply correctly for root vs child actors."""
+        # Root actor at (100, 0, 0)
+        root_transform = UnrealTransform(
+            rotation=UnrealQuat(0, 0, 0, 1),
+            translation=UnrealVector(100.0, 0.0, 0.0),
+            scale=UnrealVector(1, 1, 1)
+        )
+        # Child actor with local relative transform (0, 50, 0)
+        child_local = UnrealTransform(
+            rotation=UnrealQuat(0, 0, 0, 1),
+            translation=UnrealVector(0.0, 50.0, 0.0),
+            scale=UnrealVector(1, 1, 1)
+        )
+        # Composed child world transform: Child * Parent
+        child_world = child_local * root_transform
+        self.assertEqual(child_world.translation, UnrealVector(100.0, 50.0, 0.0))
+
+        # When a live update arrives for child (local (0, 75, 0)),
+        # it updates child local transform directly without double-transforming parent
+        updated_child_local = UnrealTransform(
+            rotation=UnrealQuat(0, 0, 0, 1),
+            translation=UnrealVector(0.0, 75.0, 0.0),
+            scale=UnrealVector(1, 1, 1)
+        )
+        updated_child_world = updated_child_local * root_transform
+        self.assertEqual(updated_child_world.translation, UnrealVector(100.0, 75.0, 0.0))
 
 
 if __name__ == "__main__":

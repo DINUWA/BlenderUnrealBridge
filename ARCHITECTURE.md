@@ -213,3 +213,41 @@ Three non-negotiable diagnostic levels:
 3. **ERROR**: Fatal conditions aborting asset processing (e.g., missing referenced texture file, unreadable mesh geometry, unsupported package manifest version).
 
 All operations emit a structured report (`report.json` or console log) detailing the findings. Silent failures are strictly forbidden.
+
+---
+
+## 8. Live Synchronization Architecture (Milestone 10)
+
+The live synchronization layer complements the `.bubridge` package pipeline with low-latency, real-time delta synchronization between active Blender and Unreal Editor sessions.
+
+```text
+Blender Viewport
+       │ (User moves / rotates / scales object)
+       ▼
+depsgraph_update_post Handler
+       │
+       ▼
+Canonical Transform Authority (transforms/canonical.py)
+       │ (Epsilon dirty-check vs last-sent cache)
+       ▼
+LiveSyncSession (TCP Client, port 27284)
+       │ (BUBRIDGE_LIVESYNC v0.1.0 JSON stream)
+       ▼
+FBridgeLiveSyncReceiver (TCP Server in Unreal Plugin)
+       │ (FRunnable background thread)
+       ▼
+Thread-Safe Pending Update Queue
+       │ (Ticker drain onto Game Thread)
+       ▼
+Actor Lookup (SpawnedActors map via stable bubridge_id)
+       │
+       ▼
+AActor / USceneComponent Transform Update
+```
+
+### 8.1 Key Design Principles:
+1. **Additive, Not Subtractive**: Live sync does NOT replace `.bubridge` packages. Full scene baseline imports remain package-driven.
+2. **Canonical Coordinates Preserved**: Transform deltas use the exact same canonical coordinate system (+Z Up, +X Forward, +Y Right, cm) evaluated by `transforms/canonical.py`.
+3. **Hierarchy Preservation**: Root actors receive world transforms; attached child actors receive local relative transforms without double transformation.
+4. **Resilient Failure Modes**: Disconnecting Blender or closing Unreal never crashes either application.
+5. **Thread Safety**: Unreal network I/O executes on an isolated `FRunnable` thread while all `UObject`/`AActor` mutations are marshaled to the Game Thread via `FTSTicker`.
